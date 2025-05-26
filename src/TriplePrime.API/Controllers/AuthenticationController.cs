@@ -1,0 +1,261 @@
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using TriplePrime.Data.Entities;
+using TriplePrime.Data.Models;
+using TriplePrime.Data.Services;
+
+namespace TriplePrime.API.Controllers
+{
+    [AllowAnonymous]
+    public class AuthenticationController : BaseController
+    {
+        private readonly AuthenticationService _authService;
+        private readonly UserService _userService;
+
+        public AuthenticationController(AuthenticationService authService, UserService userService)
+        {
+            _authService = authService;
+            _userService = userService;
+        }
+
+        [HttpPost("login")]
+        public async Task<IActionResult> Login([FromBody] LoginRequest request)
+        {
+            try
+            {
+                var result = await _authService.LoginAsync(request.Email, request.Password);
+                if (!result.Success)
+                {
+                    return HandleResponse(ApiResponse.ErrorResponse(result.ErrorMessage));
+                }
+                return HandleResponse(ApiResponse<AuthenticationResult>.SuccessResponse(result));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpPost("register")]
+        public async Task<IActionResult> Register([FromBody] RegisterRequest request)
+        {
+            try
+            {
+                var user = new ApplicationUser
+                {
+                    UserName = request.Email,
+                    Email = request.Email,
+                    FirstName = request.FirstName,
+                    LastName = request.LastName,
+                    PhoneNumber = request.PhoneNumber,
+                    IsActive = true
+                };
+
+                var result = await _authService.RegisterAsync(user, request.Password);
+                if (!result.Success)
+                {
+                    return HandleResponse(ApiResponse.ErrorResponse(result.ErrorMessage));
+                }
+                return HandleResponse(ApiResponse<AuthenticationResult>.SuccessResponse(result));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpPost("logout")]
+        [Authorize]
+        public async Task<IActionResult> Logout()
+        {
+            try
+            {
+                await _authService.LogoutAsync();
+                return HandleResponse(ApiResponse.SuccessResponse("Logged out successfully"));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpPost("forgot-password")]
+        public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
+        {
+            try
+            {
+                var token = await _authService.GeneratePasswordResetTokenAsync(request.Email);
+                return HandleResponse(ApiResponse<string>.SuccessResponse(token));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpPost("reset-password")]
+        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
+        {
+            try
+            {
+                var result = await _authService.ResetPasswordAsync(request.Email, request.Token, request.NewPassword);
+                if (!result.Success)
+                {
+                    return HandleResponse(ApiResponse.ErrorResponse(result.ErrorMessage));
+                }
+                return HandleResponse(ApiResponse.SuccessResponse("Password reset successfully"));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpPost("change-password")]
+        [Authorize]
+        public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
+        {
+            try
+            {
+                var userId = User.FindFirst("sub")?.Value;
+                var result = await _authService.ChangePasswordAsync(userId, request.CurrentPassword, request.NewPassword);
+                if (!result.Success)
+                {
+                    return HandleResponse(ApiResponse.ErrorResponse(result.ErrorMessage));
+                }
+                return HandleResponse(ApiResponse.SuccessResponse("Password changed successfully"));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpGet("validate-token")]
+        public async Task<IActionResult> ValidateToken([FromQuery] string userId, [FromQuery] string token, [FromQuery] string purpose)
+        {
+            try
+            {
+                var isValid = await _authService.ValidateTokenAsync(userId, token, purpose);
+                return HandleResponse(ApiResponse<bool>.SuccessResponse(isValid));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpGet("users")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> GetAllUsers()
+        {
+            try
+            {
+                var users = await _authService.GetAllUsersAsync();
+                return HandleResponse(ApiResponse<IEnumerable<UserDetails>>.SuccessResponse(users));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpPut("users/{userId}")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> UpdateUser(string userId, [FromBody] UpdateUserRequest request)
+        {
+            try
+            {
+                var updatedUser = await _authService.UpdateUserAsync(userId, request);
+                return HandleResponse(ApiResponse<UserDetails>.SuccessResponse(updatedUser));
+            }
+            catch (ArgumentException ex)
+            {
+                return HandleResponse(ApiResponse.ErrorResponse(ex.Message));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpDelete("users/{userId}")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> DeleteUser(string userId)
+        {
+            try
+            {
+                await _authService.DeleteUserAsync(userId);
+                return HandleResponse(ApiResponse.SuccessResponse("User deleted successfully"));
+            }
+            catch (ArgumentException ex)
+            {
+                return HandleResponse(ApiResponse.ErrorResponse(ex.Message));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpPatch("users/{userId}/status")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> ChangeUserStatus(string userId, [FromBody] ChangeStatusRequest request)
+        {
+            try
+            {
+                var updatedUser = await _authService.ChangeUserStatusAsync(userId, request.Status);
+                return HandleResponse(ApiResponse<UserDetails>.SuccessResponse(updatedUser));
+            }
+            catch (ArgumentException ex)
+            {
+                return HandleResponse(ApiResponse.ErrorResponse(ex.Message));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+    }
+
+    public class LoginRequest
+    {
+        public string Email { get; set; }
+        public string Password { get; set; }
+    }
+
+    public class RegisterRequest
+    {
+        public string Email { get; set; }
+        public string Password { get; set; }
+        public string FirstName { get; set; }
+        public string LastName { get; set; }
+        public string PhoneNumber { get; set; }
+    }
+
+    public class ForgotPasswordRequest
+    {
+        public string Email { get; set; }
+    }
+
+    public class ResetPasswordRequest
+    {
+        public string Email { get; set; }
+        public string Token { get; set; }
+        public string NewPassword { get; set; }
+    }
+
+    public class ChangePasswordRequest
+    {
+        public string CurrentPassword { get; set; }
+        public string NewPassword { get; set; }
+    }
+
+    public class ChangeStatusRequest
+    {
+        public string Status { get; set; }
+    }
+} 
