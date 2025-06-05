@@ -5,222 +5,326 @@ using System.Threading.Tasks;
 using TriplePrime.Data.Entities;
 using TriplePrime.Data.Interfaces;
 using TriplePrime.Data.Repositories;
+using System.IO;
 
 namespace TriplePrime.Data.Services
 {
     public class FoodPackService
     {
         private readonly IUnitOfWork _unitOfWork;
+        private readonly string _imageBasePath;
+        private readonly string _apiBaseUrl;
 
-        public FoodPackService(IUnitOfWork unitOfWork)
+        public FoodPackService(IUnitOfWork unitOfWork, string imageBasePath, string apiBaseUrl)
         {
             _unitOfWork = unitOfWork;
+            _imageBasePath = imageBasePath;
+            _apiBaseUrl = apiBaseUrl.TrimEnd('/');
         }
 
-        public async Task<FoodPack> CreateFoodPackAsync(FoodPack foodPack)
+        private string GetFullImageUrl(string relativePath)
         {
-            foodPack.CreatedAt = DateTime.UtcNow;
-            foodPack.Status = FoodPackStatus.Active;
+            if (string.IsNullOrEmpty(relativePath))
+                return null;
 
-            await _unitOfWork.Repository<FoodPack>().AddAsync(foodPack);
-            await _unitOfWork.SaveChangesAsync();
-
-            return foodPack;
+            return $"{_apiBaseUrl}{relativePath}";
         }
 
-        public async Task<FoodPack> GetFoodPackByIdAsync(int id)
+        public async Task<FoodPack> CreateFoodPackAsync(CreateFoodPackRequest request)
         {
-            var spec = new FoodPackSpecification(id);
-            return await _unitOfWork.Repository<FoodPack>().GetEntityWithSpec(spec);
-        }
-
-        public async Task<IReadOnlyList<FoodPack>> GetFoodPacksByStatusAsync(FoodPackStatus status)
-        {
-            var spec = new FoodPackSpecification();
-            spec.ApplyStatusFilter(status);
-            var foodPacks = await _unitOfWork.Repository<FoodPack>().ListAsync(spec);
-            return foodPacks.ToList();
-        }
-
-        public async Task<IReadOnlyList<FoodPack>> GetFoodPacksByCategoryAsync(string category)
-        {
-            var spec = new FoodPackSpecification();
-            spec.ApplyCategoryFilter(category);
-            var foodPacks = await _unitOfWork.Repository<FoodPack>().ListAsync(spec);
-            return foodPacks.ToList();
-        }
-
-        public async Task<IReadOnlyList<FoodPack>> GetFoodPacksByPriceRangeAsync(decimal minPrice, decimal maxPrice)
-        {
-            var spec = new FoodPackSpecification();
-            spec.ApplyPriceRangeFilter(minPrice, maxPrice);
-            var foodPacks = await _unitOfWork.Repository<FoodPack>().ListAsync(spec);
-            return foodPacks.ToList();
-        }
-
-        public async Task UpdateFoodPackAsync(FoodPack foodPack)
-        {
-            var existingPack = await GetFoodPackByIdAsync(foodPack.Id);
-            if (existingPack == null)
+            await _unitOfWork.BeginTransactionAsync();
+            try
             {
-                throw new ArgumentException($"Food pack with ID {foodPack.Id} not found");
+                // Save image
+                string imageUrl = await SaveFoodPackImage(request.ImageBase64);
+
+                // Create food pack
+                var foodPack = new FoodPack
+                {
+                    Name = request.Name,
+                    Description = request.Description,
+                    Price = request.Price,
+                    OriginalPrice = request.OriginalPrice,
+                    Savings = request.OriginalPrice - request.Price,
+                    Available = request.Available,
+                    Featured = request.Featured,
+                    ImageUrl = imageUrl,
+                    Inventory = request.Inventory,
+                    Duration = request.Duration,
+                    Category = request.Category,
+                    CreatedAt = DateTime.UtcNow,
+                    CreatedBy = request.CreatedBy
+                };
+
+                await _unitOfWork.Repository<FoodPack>().AddAsync(foodPack);
+                await _unitOfWork.SaveChangesAsync();
+
+                // Add items
+                foreach (var item in request.Items)
+                {
+                    await _unitOfWork.Repository<FoodPackItem>().AddAsync(new FoodPackItem
+                    {
+                        FoodPackId = foodPack.Id,
+                        Item = item,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+
+                await _unitOfWork.SaveChangesAsync();
+                await _unitOfWork.CommitTransactionAsync();
+
+                // Set full image URL before returning
+
+                foodPack.ImageUrl = GetFullImageUrl(foodPack.ImageUrl);
+                return foodPack;
             }
-
-            existingPack.Name = foodPack.Name;
-            existingPack.Description = foodPack.Description;
-            existingPack.Price = foodPack.Price;
-            existingPack.Category = foodPack.Category;
-            existingPack.Status = foodPack.Status;
-            existingPack.UpdatedAt = DateTime.UtcNow;
-
-            _unitOfWork.Repository<FoodPack>().Update(existingPack);
-            await _unitOfWork.SaveChangesAsync();
+            catch
+            {
+                await _unitOfWork.RollbackTransactionAsync();
+                throw;
+            }
         }
 
-        public async Task UpdateFoodPackStatusAsync(int id, FoodPackStatus status)
+        public async Task<FoodPack> UpdateFoodPackAsync(int id, UpdateFoodPackRequest request)
         {
-            var foodPack = await GetFoodPackByIdAsync(id);
-            if (foodPack == null)
+            await _unitOfWork.BeginTransactionAsync();
+            try
             {
-                throw new ArgumentException($"Food pack with ID {id} not found");
+                var foodPack = await _unitOfWork.Repository<FoodPack>().GetByIdAsync(id);
+                if (foodPack == null)
+                    throw new ArgumentException($"Food pack with ID {id} not found");
+
+                // Update basic info
+                foodPack.Name = request.Name ?? foodPack.Name;
+                foodPack.Description = request.Description ?? foodPack.Description;
+                foodPack.Price = request.Price ?? foodPack.Price;
+                foodPack.OriginalPrice = request.OriginalPrice ?? foodPack.OriginalPrice;
+                foodPack.Savings = (request.OriginalPrice ?? foodPack.OriginalPrice) - (request.Price ?? foodPack.Price);
+                foodPack.Available = request.Available ?? foodPack.Available;
+                foodPack.Featured = request.Featured ?? foodPack.Featured;
+                foodPack.Inventory = request.Inventory ?? foodPack.Inventory;
+                foodPack.Duration = request.Duration ?? foodPack.Duration;
+                foodPack.Category = request.Category ?? foodPack.Category;
+                foodPack.UpdatedAt = DateTime.UtcNow;
+                foodPack.UpdatedBy = request.UpdatedBy;
+
+                // Update image if provided
+                if (!string.IsNullOrEmpty(request.ImageBase64))
+                {
+                    foodPack.ImageUrl = await SaveFoodPackImage(request.ImageBase64);
+                }
+
+                _unitOfWork.Repository<FoodPack>().Update(foodPack);
+
+                // Update items if provided
+                if (request.Items != null)
+                {
+                    // Remove existing items
+                    var existingItems = await _unitOfWork.Repository<FoodPackItem>()
+                        .ListAsync(new FoodPackItemSpecification(id));
+                    foreach (var item in existingItems)
+                    {
+                        _unitOfWork.Repository<FoodPackItem>().Remove(item);
+                    }
+
+                    // Add new items
+                    foreach (var item in request.Items)
+                    {
+                        await _unitOfWork.Repository<FoodPackItem>().AddAsync(new FoodPackItem
+                        {
+                            FoodPackId = foodPack.Id,
+                            Item = item,
+                            CreatedAt = DateTime.UtcNow
+                        });
+                    }
+                }
+
+                await _unitOfWork.SaveChangesAsync();
+                await _unitOfWork.CommitTransactionAsync();
+
+                // Set full image URL before returning
+                foodPack.ImageUrl = GetFullImageUrl(foodPack.ImageUrl);
+                return foodPack;
             }
-
-            foodPack.Status = status;
-            foodPack.UpdatedAt = DateTime.UtcNow;
-
-            _unitOfWork.Repository<FoodPack>().Update(foodPack);
-            await _unitOfWork.SaveChangesAsync();
+            catch
+            {
+                await _unitOfWork.RollbackTransactionAsync();
+                throw;
+            }
         }
 
         public async Task DeleteFoodPackAsync(int id)
         {
-            var foodPack = await GetFoodPackByIdAsync(id);
+            var foodPack = await _unitOfWork.Repository<FoodPack>().GetByIdAsync(id);
             if (foodPack == null)
-            {
                 throw new ArgumentException($"Food pack with ID {id} not found");
+
+            // Delete associated image
+            if (!string.IsNullOrEmpty(foodPack.ImageUrl))
+            {
+                var imagePath = Path.Combine(_imageBasePath, foodPack.ImageUrl.TrimStart('/'));
+                if (File.Exists(imagePath))
+                {
+                    File.Delete(imagePath);
+                }
             }
 
             _unitOfWork.Repository<FoodPack>().Remove(foodPack);
             await _unitOfWork.SaveChangesAsync();
         }
 
-        public async Task<IReadOnlyList<FoodPack>> SearchFoodPacksAsync(string searchTerm)
+        public async Task<IReadOnlyList<FoodPack>> GetAllFoodPacksAsync()
         {
             var spec = new FoodPackSpecification();
-            spec.ApplySearchFilter(searchTerm);
             var foodPacks = await _unitOfWork.Repository<FoodPack>().ListAsync(spec);
-            return foodPacks.ToList();
+            var result = foodPacks.ToList();
+            
+            // Set full image URLs
+            foreach (var pack in result)
+            {
+                pack.ImageUrl = GetFullImageUrl(pack.ImageUrl);
+            }
+            
+            return result;
         }
 
-        public async Task<IReadOnlyList<FoodPack>> GetFoodPacksByDateRangeAsync(DateTime startDate, DateTime endDate)
+        public async Task<FoodPack> GetFoodPackByIdAsync(int id)
         {
-            var spec = new FoodPackSpecification();
-            spec.ApplyDateRangeFilter(startDate, endDate);
-            var foodPacks = await _unitOfWork.Repository<FoodPack>().ListAsync(spec);
-            return foodPacks.ToList();
+            var spec = new FoodPackSpecification(id);
+            var foodPack = await _unitOfWork.Repository<FoodPack>().GetEntityWithSpec(spec);
+            
+            if (foodPack != null)
+            {
+                foodPack.ImageUrl = GetFullImageUrl(foodPack.ImageUrl);
+            }
+            
+            return foodPack;
         }
 
-        public async Task<IReadOnlyList<FoodPack>> GetFoodPacksByPopularityAsync()
-        {
-            var spec = new FoodPackSpecification();
-            spec.ApplyOrderByPopularity();
-            var foodPacks = await _unitOfWork.Repository<FoodPack>().ListAsync(spec);
-            return foodPacks.ToList();
-        }
-
-        public async Task<IReadOnlyList<FoodPack>> GetFoodPacksByRatingAsync()
-        {
-            var spec = new FoodPackSpecification();
-            spec.ApplyOrderByRating();
-            var foodPacks = await _unitOfWork.Repository<FoodPack>().ListAsync(spec);
-            return foodPacks.ToList();
-        }
-
-        public async Task<IReadOnlyList<FoodPack>> GetUserFoodPacksAsync(string userId, bool includeItems = false)
-        {
-            var spec = new FoodPackSpecification(userId, includeItems);
-            var foodPacks = await _unitOfWork.Repository<FoodPack>().ListAsync(spec);
-            return foodPacks.ToList();
-        }
-
-        public async Task<(IReadOnlyList<FoodPack> Items, int TotalCount)> GetPagedFoodPacksAsync(
-            int pageNumber,
-            int pageSize,
-            FoodPackStatus? status = null,
+        public async Task<(IReadOnlyList<FoodPack> Items, int TotalCount)> SearchFoodPacksAsync(
+            string searchQuery = null,
+            string category = null,
             decimal? minPrice = null,
             decimal? maxPrice = null,
-            DateTime? startDate = null,
-            DateTime? endDate = null)
+            bool? available = null,
+            bool? featured = null,
+            string sortBy = "name",
+            string sortOrder = "asc",
+            int page = 1,
+            int pageSize = 10)
         {
-            var spec = new FoodPackSpecification(true);
-            
-            if (status.HasValue)
-            {
-                spec.ApplyStatusFilter(status.Value);
-            }
-
-            if (minPrice.HasValue && maxPrice.HasValue)
-            {
-                spec.ApplyPriceRangeFilter(minPrice.Value, maxPrice.Value);
-            }
-
-            if (startDate.HasValue && endDate.HasValue)
-            {
-                spec.ApplyDeliveryDateRangeFilter(startDate.Value, endDate.Value);
-            }
-
-            spec.ApplyOrderByDeliveryDate();
-            spec.ApplyPagination(pageNumber, pageSize);
+            var spec = new FoodPackSpecification(
+                searchQuery,
+                category,
+                minPrice,
+                maxPrice,
+                available,
+                featured,
+                sortBy,
+                sortOrder,
+                page,
+                pageSize
+            );
 
             var items = await _unitOfWork.Repository<FoodPack>().ListAsync(spec);
             var count = await _unitOfWork.Repository<FoodPack>().CountAsync(spec);
 
-            return (items.ToList(), count);
+            var result = items.ToList();
+            
+            // Set full image URLs
+            foreach (var pack in result)
+            {
+                pack.ImageUrl = GetFullImageUrl(pack.ImageUrl);
+            }
+
+            return (result, count);
         }
 
-        public async Task<FoodPack> CreateFoodPackWithItemsAsync(FoodPack foodPack, List<FoodPackItem> items)
+        public async Task<IReadOnlyList<FoodPack>> AdjustPricesAsync(decimal percentageIncrease)
         {
-            foodPack.CreatedAt = DateTime.UtcNow;
-            foodPack.Status = FoodPackStatus.Active;
+            var spec = new FoodPackSpecification();
+            var foodPacks = await _unitOfWork.Repository<FoodPack>().ListAsync(spec);
+            var updatedPacks = new List<FoodPack>();
 
-            // Add the food pack
-            await _unitOfWork.Repository<FoodPack>().AddAsync(foodPack);
-            await _unitOfWork.SaveChangesAsync();
-
-            // Add the items
-            foreach (var item in items)
+            foreach (var pack in foodPacks)
             {
-                item.FoodPackId = foodPack.Id;
-                await _unitOfWork.Repository<FoodPackItem>().AddAsync(item);
+                var increaseFactor = 1 + (percentageIncrease / 100);
+                pack.Price = Math.Round(pack.Price * increaseFactor, 2);
+                pack.OriginalPrice = Math.Round(pack.OriginalPrice * increaseFactor, 2);
+                pack.Savings = pack.OriginalPrice - pack.Price;
+                pack.UpdatedAt = DateTime.UtcNow;
+                pack.UpdatedBy = "System";
+
+                _unitOfWork.Repository<FoodPack>().Update(pack);
+                updatedPacks.Add(pack);
             }
 
             await _unitOfWork.SaveChangesAsync();
 
-            return foodPack;
+            // Set full image URLs
+            foreach (var pack in updatedPacks)
+            {
+                pack.ImageUrl = GetFullImageUrl(pack.ImageUrl);
+            }
+
+            return updatedPacks;
         }
 
-        public async Task<decimal> GetTotalRevenueAsync(DateTime startDate, DateTime endDate)
+        private async Task<string> SaveFoodPackImage(string base64Image)
         {
-            var spec = new FoodPackSpecification();
-            spec.ApplyDeliveryDateRangeFilter(startDate, endDate);
-            spec.ApplyStatusFilter(FoodPackStatus.Active); // Changed from 'Delivered' as it's not in the enum
+            if (string.IsNullOrEmpty(base64Image))
+                return null;
 
-            var foodPacks = await _unitOfWork.Repository<FoodPack>().ListAsync(spec);
-            return foodPacks.Sum(fp => fp.Price);
+            // Remove data:image/jpeg;base64, prefix
+            var base64Data = base64Image.Substring(base64Image.IndexOf(",") + 1);
+            
+            // Convert base64 to bytes
+            var imageBytes = Convert.FromBase64String(base64Data);
+            
+            // Generate unique filename
+            var fileName = $"{Guid.NewGuid()}.jpg";
+            var filePath = Path.Combine(_imageBasePath, "foodpacks", fileName);
+            
+            // Ensure directory exists
+            Directory.CreateDirectory(Path.GetDirectoryName(filePath));
+            
+            // Save file
+            await File.WriteAllBytesAsync(filePath, imageBytes);
+            
+            // Return relative URL
+            return $"/images/foodpacks/{fileName}";
         }
+    }
 
-        public async Task<IReadOnlyList<FoodPack>> GetUpcomingDeliveriesAsync(int daysAhead)
-        {
-            var spec = new FoodPackSpecification(true);
-            spec.ApplyDeliveryDateRangeFilter(
-                DateTime.UtcNow,
-                DateTime.UtcNow.AddDays(daysAhead)
-            );
-            spec.ApplyStatusFilter(FoodPackStatus.Pending);
-            spec.ApplyOrderByDeliveryDate();
+    public class CreateFoodPackRequest
+    {
+        public string Name { get; set; }
+        public string Description { get; set; }
+        public decimal Price { get; set; }
+        public decimal OriginalPrice { get; set; }
+        public bool Available { get; set; }
+        public bool Featured { get; set; }
+        public string? ImageBase64 { get; set; }
+        public int Inventory { get; set; }
+        public List<string> Items { get; set; }
+        public int Duration { get; set; }
+        public string Category { get; set; }
+        public string CreatedBy { get; set; }
+    }
 
-            var foodPacks = await _unitOfWork.Repository<FoodPack>().ListAsync(spec);
-            return foodPacks.ToList();
-        }
+    public class UpdateFoodPackRequest
+    {
+        public string Name { get; set; }
+        public string Description { get; set; }
+        public decimal? Price { get; set; }
+        public decimal? OriginalPrice { get; set; }
+        public bool? Available { get; set; }
+        public bool? Featured { get; set; }
+        public string? ImageBase64 { get; set; }
+        public int? Inventory { get; set; }
+        public List<string> Items { get; set; }
+        public int? Duration { get; set; }
+        public string Category { get; set; }
+        public string UpdatedBy { get; set; }
     }
 } 

@@ -21,14 +21,14 @@ namespace TriplePrime.API.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> CreateMarketer([FromBody] Marketer marketer)
+        public async Task<IActionResult> CreateMarketer([FromBody] CreateMarketerRequest request)
         {
             try
             {
-                var result = await _marketerService.CreateMarketerAsync(marketer);
-                return HandleResponse(ApiResponse<Marketer>.SuccessResponse(result));
+                var result = await _marketerService.CreateMarketerAsync(request);
+                return HandleResponse(ApiResponse<MarketerDetails>.SuccessResponse(result));
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 return HandleException(ex);
             }
@@ -42,29 +42,11 @@ namespace TriplePrime.API.Controllers
                 var marketer = await _marketerService.GetMarketerByIdAsync(id);
                 if (marketer == null)
                 {
-                    return HandleResponse(ApiResponse<Marketer>.ErrorResponse("Marketer not found"));
+                    return HandleResponse(ApiResponse<MarketerDetails>.ErrorResponse("Marketer not found"));
                 }
-                return HandleResponse(ApiResponse<Marketer>.SuccessResponse(marketer));
+                return HandleResponse(ApiResponse<MarketerDetails>.SuccessResponse(marketer));
             }
-            catch (System.Exception ex)
-            {
-                return HandleException(ex);
-            }
-        }
-
-        [HttpGet("user/{userId}")]
-        public async Task<IActionResult> GetMarketerByUserId(string userId)
-        {
-            try
-            {
-                var marketer = await _marketerService.GetMarketerByUserIdAsync(userId);
-                if (marketer == null)
-                {
-                    return HandleResponse(ApiResponse<Marketer>.ErrorResponse("Marketer not found"));
-                }
-                return HandleResponse(ApiResponse<Marketer>.SuccessResponse(marketer));
-            }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 return HandleException(ex);
             }
@@ -76,28 +58,65 @@ namespace TriplePrime.API.Controllers
             try
             {
                 var marketers = await _marketerService.GetAllMarketersAsync();
-                return HandleResponse(ApiResponse<IEnumerable<Marketer>>.SuccessResponse(marketers));
+                return HandleResponse(ApiResponse<IEnumerable<MarketerDetails>>.SuccessResponse(marketers));
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 return HandleException(ex);
             }
         }
 
         [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateMarketer(int id, [FromBody] Marketer marketer)
+        public async Task<IActionResult> UpdateMarketer(int id, [FromBody] UpdateMarketerRequest request)
         {
             try
             {
-                if (id != marketer.Id)
-                {
-                    return HandleResponse(ApiResponse.ErrorResponse("ID mismatch"));
-                }
-
-                var result = await _marketerService.UpdateMarketerAsync(marketer);
-                return HandleResponse(ApiResponse<Marketer>.SuccessResponse(result));
+                var result = await _marketerService.UpdateMarketerAsync(id, request);
+                return HandleResponse(ApiResponse<MarketerDetails>.SuccessResponse(result));
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpPatch("{id}/commission")]
+        public async Task<IActionResult> UpdateCommissionRate(int id, [FromBody] decimal newRate)
+        {
+            try
+            {
+                var result = await _marketerService.UpdateCommissionRateAsync(id, newRate);
+                return HandleResponse(ApiResponse<MarketerDetails>.SuccessResponse(result));
+            }
+            catch (Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpPatch("{id}/status")]
+        public async Task<IActionResult> ChangeStatus(int id, [FromBody] bool isActive)
+        {
+            try
+            {
+                var result = await _marketerService.ChangeStatusAsync(id, isActive);
+                return HandleResponse(ApiResponse<MarketerDetails>.SuccessResponse(result));
+            }
+            catch (Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpGet("{id}/performance")]
+        public async Task<IActionResult> GetMarketerPerformance(int id, [FromQuery] DateTime startDate, [FromQuery] DateTime endDate)
+        {
+            try
+            {
+                var performance = await _marketerService.GetMarketerPerformanceAsync(id, startDate, endDate);
+                return HandleResponse(ApiResponse<MarketerPerformance>.SuccessResponse(performance));
+            }
+            catch (Exception ex)
             {
                 return HandleException(ex);
             }
@@ -109,52 +128,10 @@ namespace TriplePrime.API.Controllers
             try
             {
                 var marketers = await _marketerService.GetAllMarketersAsync();
-                var activeMarketers = marketers.Where(m => m.IsActive);
-                return HandleResponse(ApiResponse<IEnumerable<Marketer>>.SuccessResponse(activeMarketers));
+                var activeMarketers = marketers.Where(m => m.Status == "active");
+                return HandleResponse(ApiResponse<IEnumerable<MarketerDetails>>.SuccessResponse(activeMarketers));
             }
-            catch (System.Exception ex)
-            {
-                return HandleException(ex);
-            }
-        }
-
-        [HttpPut("{id}/activate")]
-        public async Task<IActionResult> ActivateMarketer(int id)
-        {
-            try
-            {
-                var marketer = await _marketerService.GetMarketerByIdAsync(id);
-                if (marketer == null)
-                {
-                    return HandleResponse(ApiResponse.ErrorResponse("Marketer not found"));
-                }
-
-                marketer.IsActive = true;
-                var result = await _marketerService.UpdateMarketerAsync(marketer);
-                return HandleResponse(ApiResponse<Marketer>.SuccessResponse(result));
-            }
-            catch (System.Exception ex)
-            {
-                return HandleException(ex);
-            }
-        }
-
-        [HttpPut("{id}/deactivate")]
-        public async Task<IActionResult> DeactivateMarketer(int id)
-        {
-            try
-            {
-                var marketer = await _marketerService.GetMarketerByIdAsync(id);
-                if (marketer == null)
-                {
-                    return HandleResponse(ApiResponse.ErrorResponse("Marketer not found"));
-                }
-
-                marketer.IsActive = false;
-                var result = await _marketerService.UpdateMarketerAsync(marketer);
-                return HandleResponse(ApiResponse<Marketer>.SuccessResponse(result));
-            }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 return HandleException(ex);
             }

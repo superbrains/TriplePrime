@@ -8,6 +8,11 @@ using TriplePrime.Data.Models;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.Extensions.Configuration;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Text;
+using Microsoft.Extensions.Logging;
 
 namespace TriplePrime.Data.Services
 {
@@ -16,46 +21,103 @@ namespace TriplePrime.Data.Services
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly SignInManager<ApplicationUser> _signInManager;
         private readonly IUnitOfWork _unitOfWork;
+        private readonly IConfiguration _configuration;
+        private readonly IEmailService _emailService;
+        private readonly ILogger<AuthenticationService> _logger;
 
         public AuthenticationService(
             UserManager<ApplicationUser> userManager,
             SignInManager<ApplicationUser> signInManager,
-            IUnitOfWork unitOfWork)
+            IUnitOfWork unitOfWork,
+            IConfiguration configuration,
+            IEmailService emailService,
+            ILogger<AuthenticationService> logger)
         {
             _userManager = userManager;
             _signInManager = signInManager;
             _unitOfWork = unitOfWork;
+            _configuration = configuration;
+            _emailService = emailService;
+            _logger = logger;
         }
 
         public async Task<AuthenticationResult> LoginAsync(string email, string password)
         {
-            var user = await _userManager.FindByEmailAsync(email);
-            if (user == null)
+            try
             {
-                return new AuthenticationResult { Success = false, ErrorMessage = "Invalid email or password" };
+                var user = await _userManager.FindByEmailAsync(email);
+                if (user == null)
+                {
+                    return new AuthenticationResult { Success = false, ErrorMessage = "Invalid email or password" };
+                }
+
+                if (!user.IsActive)
+                {
+                    return new AuthenticationResult { Success = false, ErrorMessage = "Account is deactivated" };
+                }
+
+                var result = await _signInManager.PasswordSignInAsync(user, password, false, false);
+                if (!result.Succeeded)
+                {
+                    return new AuthenticationResult { Success = false, ErrorMessage = "Invalid email or password" };
+                }
+
+                var claims = await _userManager.GetClaimsAsync(user);
+                var roles = await _userManager.GetRolesAsync(user);
+
+                // Generate JWT token
+                var token = GenerateJwtToken(user, roles);
+
+                // Add token to claims
+                claims.Add(new Claim("token", token));
+
+                return new AuthenticationResult
+                {
+                    Success = true,
+                    User = user,
+                    Claims = claims,
+                    Roles = roles
+                };
             }
-
-            if (!user.IsActive)
+            catch (Exception ex)
             {
-                return new AuthenticationResult { Success = false, ErrorMessage = "Account is deactivated" };
+                // Log the error here if you have a logging service
+                return new AuthenticationResult 
+                { 
+                    Success = false, 
+                    ErrorMessage = "An error occurred during login. Please try again later." 
+                };
             }
+        }
 
-            var result = await _signInManager.PasswordSignInAsync(user, password, false, false);
-            if (!result.Succeeded)
+        private string GenerateJwtToken(ApplicationUser user, IList<string> roles)
+        {
+            var claims = new List<Claim>
             {
-                return new AuthenticationResult { Success = false, ErrorMessage = "Invalid email or password" };
-            }
-
-            var claims = await _userManager.GetClaimsAsync(user);
-            var roles = await _userManager.GetRolesAsync(user);
-
-            return new AuthenticationResult
-            {
-                Success = true,
-                User = user,
-                Claims = claims,
-                Roles = roles
+                new Claim(ClaimTypes.NameIdentifier, user.Id),
+                new Claim(ClaimTypes.Email, user.Email),
+                new Claim(ClaimTypes.Name, $"{user.FirstName} {user.LastName}".Trim())
             };
+
+            // Add roles to claims
+            foreach (var role in roles)
+            {
+                claims.Add(new Claim(ClaimTypes.Role, role));
+            }
+
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
+            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+            var expires = DateTime.Now.AddDays(Convert.ToDouble(_configuration["Jwt:ExpireDays"]));
+
+            var token = new JwtSecurityToken(
+                issuer: _configuration["Jwt:Issuer"],
+                audience: _configuration["Jwt:Audience"],
+                claims: claims,
+                expires: expires,
+                signingCredentials: creds
+            );
+
+            return new JwtSecurityTokenHandler().WriteToken(token);
         }
 
         public async Task<AuthenticationResult> RegisterAsync(ApplicationUser user, string password)
@@ -80,15 +142,64 @@ namespace TriplePrime.Data.Services
                 await _unitOfWork.SaveChangesAsync();
                 await _unitOfWork.CommitTransactionAsync();
 
+                // Send welcome email based on user role
+                try
+                {
+                    var baseUrl = _configuration["AppSettings:ApiBaseUrl"];
+                    var loginUrl = $"{baseUrl}/login";
+
+                    var emailModel = new
+                    {
+                        Name = $"{user.FirstName} {user.LastName}".Trim(),
+                        Email = user.Email,
+                        Password = password, // Only for initial welcome email
+                        LoginUrl = loginUrl
+                    };
+
+                    // Determine which template to use based on user role
+                    var roles = await _userManager.GetRolesAsync(user);
+                    string templateName;
+                    string subject;
+
+                    if (roles.Contains("Admin") || roles.Contains("Marketer"))
+                    {
+                        templateName = "AdminWelcomeTemplate.html";
+                        subject = "Welcome to TriplePrime - Staff Account Created";
+                        var staffModel = new
+                        {
+                            Name = emailModel.Name,
+                            Email = emailModel.Email,
+                            Password = emailModel.Password,
+                            LoginUrl = emailModel.LoginUrl,
+                            Role = roles.First() // "Admin" or "Marketer"
+                        };
+                        await _emailService.SendTemplatedEmailAsync(user.Email, subject, templateName, staffModel);
+                    }
+                    else
+                    {
+                        templateName = "CustomerWelcomeTemplate.html";
+                        subject = "Welcome to TriplePrime!";
+                        await _emailService.SendTemplatedEmailAsync(user.Email, subject, templateName, emailModel);
+                    }
+
+                    _logger.LogInformation("Welcome email sent successfully to {Email}", user.Email);
+                }
+                catch (Exception ex)
+                {
+                    // Log the error but don't fail the registration
+                    _logger.LogError(ex, "Failed to send welcome email to {Email}", user.Email);
+                }
+
                 return new AuthenticationResult
                 {
                     Success = true,
                     User = user
                 };
             }
-            catch
+            catch (Exception ex)
             {
                 await _unitOfWork.RollbackTransactionAsync();
+                _logger.LogError(ex, "Registration failed for {Email}", user.Email);
                 throw;
             }
         }

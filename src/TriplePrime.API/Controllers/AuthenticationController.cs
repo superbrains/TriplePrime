@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Mvc;
 using TriplePrime.Data.Entities;
 using TriplePrime.Data.Models;
 using TriplePrime.Data.Services;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace TriplePrime.API.Controllers
 {
@@ -51,19 +53,56 @@ namespace TriplePrime.API.Controllers
                     FirstName = request.FirstName,
                     LastName = request.LastName,
                     PhoneNumber = request.PhoneNumber,
+                    Address = request.Address,
                     IsActive = true
                 };
 
-                var result = await _authService.RegisterAsync(user, request.Password);
+                // Generate a random password if none is provided
+                string password = request.Password;
+                if (string.IsNullOrEmpty(password))
+                {
+                    password = GenerateRandomPassword();
+                }
+
+                var result = await _authService.RegisterAsync(user, password);
                 if (!result.Success)
                 {
                     return HandleResponse(ApiResponse.ErrorResponse(result.ErrorMessage));
                 }
-                return HandleResponse(ApiResponse<AuthenticationResult>.SuccessResponse(result));
+
+                // Add the generated password to the response if one was generated
+                var response = new
+                {
+                    result.Success,
+                    result.User,
+                    GeneratedPassword = string.IsNullOrEmpty(request.Password) ? password : null
+                };
+
+                return HandleResponse(ApiResponse<object>.SuccessResponse(response));
             }
             catch (System.Exception ex)
             {
                 return HandleException(ex);
+            }
+        }
+
+        private string GenerateRandomPassword()
+        {
+            const string validChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%^&*()_+-=[]{}|;:,.<>?";
+            const int length = 12; // Password length
+
+            using (var rng = new RNGCryptoServiceProvider())
+            {
+                var bytes = new byte[length];
+                rng.GetBytes(bytes);
+
+                var chars = new char[length];
+                for (int i = 0; i < length; i++)
+                {
+                    chars[i] = validChars[bytes[i] % validChars.Length];
+                }
+
+                return new string(chars);
             }
         }
 
@@ -234,6 +273,7 @@ namespace TriplePrime.API.Controllers
         public string FirstName { get; set; }
         public string LastName { get; set; }
         public string PhoneNumber { get; set; }
+        public string Address { get; set; }
     }
 
     public class ForgotPasswordRequest

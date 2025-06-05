@@ -1,153 +1,192 @@
 using System;
+using System.Collections.Generic;
 using System.Linq.Expressions;
 using TriplePrime.Data.Entities;
+using TriplePrime.Data.Interfaces;
 
 namespace TriplePrime.Data.Repositories
 {
-    public class FoodPackSpecification : BaseSpecification<FoodPack>
+    public class FoodPackSpecification : ISpecification<FoodPack>
     {
+        private Expression<Func<FoodPack, bool>> _criteria;
+        private List<Expression<Func<FoodPack, object>>> _includes = new List<Expression<Func<FoodPack, object>>>();
+        private List<string> _includeStrings = new List<string>();
+        private Expression<Func<FoodPack, object>> _orderBy;
+        private Expression<Func<FoodPack, object>> _orderByDescending;
+        private Expression<Func<FoodPack, object>> _groupBy;
+        private int _take;
+        private int _skip;
+        private DateTime? _startDate;
+        private DateTime? _endDate;
+
+        public Expression<Func<FoodPack, bool>> Criteria => _criteria;
+        public List<Expression<Func<FoodPack, object>>> Includes => _includes;
+        public List<string> IncludeStrings => _includeStrings;
+        public Expression<Func<FoodPack, object>> OrderBy => _orderBy;
+        public Expression<Func<FoodPack, object>> OrderByDescending => _orderByDescending;
+        public Expression<Func<FoodPack, object>> GroupBy => _groupBy;
+        public int Take => _take;
+        public int Skip => _skip;
+        public bool IsPagingEnabled => _take > 0;
+        public DateTime? StartDate 
+        { 
+            get => _startDate;
+            set => _startDate = value;
+        }
+        public DateTime? EndDate 
+        { 
+            get => _endDate;
+            set => _endDate = value;
+        }
+
         public FoodPackSpecification(int id)
-            : base(fp => fp.Id == id)
         {
-            AddInclude(fp => fp.Items);
-            AddInclude(fp => fp.SavingsPlan);
+            _criteria = fp => fp.Id == id;
+            _includes.Add(fp => fp.Items);
         }
 
-        public FoodPackSpecification(string userId, bool includeItems)
-            : base(fp => fp.UserId == userId)
+        public FoodPackSpecification(
+            string searchQuery = null,
+            string category = null,
+            decimal? minPrice = null,
+            decimal? maxPrice = null,
+            bool? available = null,
+            bool? featured = null,
+            string sortBy = "name",
+            string sortOrder = "asc",
+            int page = 1,
+            int pageSize = 10)
         {
-            if (includeItems)
-            {
-                AddInclude(fp => fp.Items);
-            }
-            AddInclude(fp => fp.SavingsPlan);
-        }
+            _includes.Add(fp => fp.Items);
 
-        public FoodPackSpecification(bool includeItems)
-            : base()
-        {
-            if (includeItems)
+            // Apply search filter
+            if (!string.IsNullOrEmpty(searchQuery))
             {
-                AddInclude(fp => fp.Items);
+                AddCriteria(fp => 
+                    fp.Name.Contains(searchQuery) || 
+                    fp.Description.Contains(searchQuery) || 
+                    fp.Category.Contains(searchQuery));
             }
-            AddInclude(fp => fp.SavingsPlan);
+
+            // Apply category filter
+            if (!string.IsNullOrEmpty(category))
+            {
+                AddCriteria(fp => fp.Category == category);
+            }
+
+            // Apply price range filter
+            if (minPrice.HasValue)
+            {
+                AddCriteria(fp => fp.Price >= minPrice.Value);
+            }
+            if (maxPrice.HasValue)
+            {
+                AddCriteria(fp => fp.Price <= maxPrice.Value);
+            }
+
+            // Apply availability filter
+            if (available.HasValue)
+            {
+                AddCriteria(fp => fp.Available == available.Value);
+            }
+
+            // Apply featured filter
+            if (featured.HasValue)
+            {
+                AddCriteria(fp => fp.Featured == featured.Value);
+            }
+
+            // Apply sorting
+            switch (sortBy.ToLower())
+            {
+                case "name":
+                    if (sortOrder.ToLower() == "desc")
+                        ApplyOrderByDescending(fp => fp.Name);
+                    else
+                        ApplyOrderBy(fp => fp.Name);
+                    break;
+                case "price":
+                    if (sortOrder.ToLower() == "desc")
+                        ApplyOrderByDescending(fp => fp.Price);
+                    else
+                        ApplyOrderBy(fp => fp.Price);
+                    break;
+                case "createdat":
+                    if (sortOrder.ToLower() == "desc")
+                        ApplyOrderByDescending(fp => fp.CreatedAt);
+                    else
+                        ApplyOrderBy(fp => fp.CreatedAt);
+                    break;
+                default:
+                    ApplyOrderBy(fp => fp.Name);
+                    break;
+            }
+
+            // Apply pagination
+            ApplyPaging((page - 1) * pageSize, pageSize);
         }
 
         public FoodPackSpecification()
-            : base()
         {
-            AddInclude(fp => fp.Items);
-            AddInclude(fp => fp.SavingsPlan);
+            _includes.Add(fp => fp.Items);
         }
 
-        public void ApplyStatusFilter(FoodPackStatus status)
-        {
-            AddCriteria(fp => fp.Status == status);
-        }
-
-        public void ApplyCategoryFilter(string category)
-        {
-            AddCriteria(fp => fp.Category == category);
-        }
-
-        public void ApplyPriceRangeFilter(decimal minPrice, decimal maxPrice)
-        {
-            AddCriteria(fp => fp.Price >= minPrice && fp.Price <= maxPrice);
-        }
-
-        public void ApplySearchFilter(string searchTerm)
-        {
-            AddCriteria(fp => 
-                fp.Name.Contains(searchTerm) || 
-                fp.Description.Contains(searchTerm) || 
-                fp.Category.Contains(searchTerm));
-        }
-
-        public void ApplyDateRangeFilter(DateTime startDate, DateTime endDate)
-        {
-            AddCriteria(fp => fp.CreatedAt >= startDate && fp.CreatedAt <= endDate);
-        }
-
-        public void ApplyDeliveryDateRangeFilter(DateTime startDate, DateTime endDate)
-        {
-            AddCriteria(fp => fp.DeliveryDate >= startDate && fp.DeliveryDate <= endDate);
-        }
-
-        public void ApplyOrderByPopularity()
-        {
-            ApplyOrderByDescending(fp => fp.PopularityScore);
-        }
-
-        public void ApplyOrderByRating()
-        {
-            ApplyOrderByDescending(fp => fp.Rating);
-        }
-
-        public void ApplyOrderByPrice(bool descending = false)
-        {
-            if (descending)
-            {
-                ApplyOrderByDescending(fp => fp.Price);
-            }
-            else
-            {
-                ApplyOrderBy(fp => fp.Price);
-            }
-        }
-
-        public void ApplyOrderByCreatedDate(bool descending = false)
-        {
-            if (descending)
-            {
-                ApplyOrderByDescending(fp => fp.CreatedAt);
-            }
-            else
-            {
-                ApplyOrderBy(fp => fp.CreatedAt);
-            }
-        }
-
-        public void ApplyOrderByDeliveryDate(bool descending = false)
-        {
-            if (descending)
-            {
-                ApplyOrderByDescending(fp => fp.DeliveryDate);
-            }
-            else
-            {
-                ApplyOrderBy(fp => fp.DeliveryDate);
-            }
-        }
-
-        public void ApplyPagination(int pageNumber, int pageSize)
-        {
-            ApplyPaging((pageNumber - 1) * pageSize, pageSize);
-        }
-
-        protected override void AddCriteria(Expression<Func<FoodPack, bool>> criteria)
+        public void AddCriteria(Expression<Func<FoodPack, bool>> criteria)
         {
             if (criteria == null)
             {
                 throw new ArgumentNullException(nameof(criteria));
             }
 
-            if (Criteria == null)
+            if (_criteria == null)
             {
-                Criteria = criteria;
+                _criteria = criteria;
             }
             else
             {
-                var parameter = Expression.Parameter(typeof(FoodPack));
-                
-                if (parameter != null)
-                {
-                    var combined = Expression.AndAlso(
-                        Expression.Invoke(Criteria, parameter),
-                        Expression.Invoke(criteria, parameter));
-                    
-                    Criteria = Expression.Lambda<Func<FoodPack, bool>>(combined, parameter);
-                }
+                var parameter = Expression.Parameter(typeof(FoodPack), "fp");
+                var left = Expression.Invoke(_criteria, parameter);
+                var right = Expression.Invoke(criteria, parameter);
+                var combined = Expression.AndAlso(left, right);
+                _criteria = Expression.Lambda<Func<FoodPack, bool>>(combined, parameter);
             }
+        }
+
+        public void AddInclude(Expression<Func<FoodPack, object>> includeExpression)
+        {
+            _includes.Add(includeExpression);
+        }
+
+        public void AddInclude(string includeString)
+        {
+            _includeStrings.Add(includeString);
+        }
+
+        public void ApplyOrderBy(Expression<Func<FoodPack, object>> orderByExpression)
+        {
+            _orderBy = orderByExpression;
+        }
+
+        public void ApplyOrderByDescending(Expression<Func<FoodPack, object>> orderByDescendingExpression)
+        {
+            _orderByDescending = orderByDescendingExpression;
+        }
+
+        public void ApplyGroupBy(Expression<Func<FoodPack, object>> groupByExpression)
+        {
+            _groupBy = groupByExpression;
+        }
+
+        public void ApplyPaging(int skip, int take)
+        {
+            _skip = skip;
+            _take = take;
+        }
+
+        public void ApplyDateRangeFilter(DateTime startDate, DateTime endDate)
+        {
+            _startDate = startDate;
+            _endDate = endDate;
         }
     }
 } 

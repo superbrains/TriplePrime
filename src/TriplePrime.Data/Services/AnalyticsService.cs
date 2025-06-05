@@ -7,6 +7,7 @@ using TriplePrime.Data.Interfaces;
 using TriplePrime.Data.Models;
 using TriplePrime.Data.Repositories;
 using Microsoft.AspNetCore.Identity;
+using TriplePrime.Data.Specifications;
 
 namespace TriplePrime.Data.Services
 {
@@ -17,6 +18,7 @@ namespace TriplePrime.Data.Services
         private readonly IGenericRepository<Delivery> _deliveryRepository;
         private readonly IGenericRepository<Marketer> _marketerRepository;
         private readonly IGenericRepository<Referral> _referralRepository;
+        private readonly IGenericRepository<FoodPackPurchase> _foodPackPurchaseRepository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IGenericRepository<ApplicationUser> _userRepository;
 
@@ -26,6 +28,7 @@ namespace TriplePrime.Data.Services
             IGenericRepository<Delivery> deliveryRepository,
             IGenericRepository<Marketer> marketerRepository,
             IGenericRepository<Referral> referralRepository,
+            IGenericRepository<FoodPackPurchase> foodPackPurchaseRepository,
             IUnitOfWork unitOfWork,
             IGenericRepository<ApplicationUser> userRepository)
         {
@@ -34,24 +37,23 @@ namespace TriplePrime.Data.Services
             _deliveryRepository = deliveryRepository;
             _marketerRepository = marketerRepository;
             _referralRepository = referralRepository;
+            _foodPackPurchaseRepository = foodPackPurchaseRepository;
             _unitOfWork = unitOfWork;
             _userRepository = userRepository;
         }
 
         public async Task<SalesAnalytics> GetSalesAnalyticsAsync(DateTime startDate, DateTime endDate)
         {
-            var foodPackSpec = new FoodPackSpecification();
-            foodPackSpec.ApplyDateRangeFilter(startDate, endDate);
-            
-            var paymentSpec = new PaymentSpecification();
-            paymentSpec.ApplyDateRangeFilter(startDate, endDate);
+            var foodPackPurchases = await _foodPackPurchaseRepository.ListAsync(new FoodPackPurchaseSpecification());
+            var payments = await _paymentRepository.ListAsync(new PaymentSpecification());
 
-            var foodPacks = await _foodPackRepository.ListAsync(foodPackSpec);
-            var payments = await _paymentRepository.ListAsync(paymentSpec);
+            // Filter by date range in memory
+            foodPackPurchases = foodPackPurchases.Where(fp => fp.PurchaseDate >= startDate && fp.PurchaseDate <= endDate);
+            payments = payments.Where(p => p.CreatedAt >= startDate && p.CreatedAt <= endDate);
 
             return new SalesAnalytics
             {
-                TotalOrders = foodPacks.Count(),
+                TotalOrders = foodPackPurchases.Count(),
                 TotalRevenue = payments.Sum(p => p.Amount),
                 AverageOrderValue = payments.Any() ? payments.Average(p => p.Amount) : 0,
                 StartDate = startDate,
@@ -61,19 +63,15 @@ namespace TriplePrime.Data.Services
 
         public async Task<MarketingAnalytics> GetMarketingAnalyticsAsync(DateTime startDate, DateTime endDate)
         {
-            var marketerSpec = new MarketerSpecification(startDate, endDate);
+            var marketers = await _marketerRepository.ListAsync(new MarketerSpecification());
             
-            var referralSpec = new ReferralSpecification(startDate, endDate);
-
-            var marketers = await _marketerRepository.ListAsync(marketerSpec);
-            var referrals = await _referralRepository.ListAsync(referralSpec);
+            // Filter by date range in memory
+            marketers = marketers.Where(m => m.CreatedAt >= startDate && m.CreatedAt <= endDate);
 
             return new MarketingAnalytics
             {
                 TotalMarketers = marketers.Count(),
                 ActiveMarketers = marketers.Count(m => m.IsActive),
-                TotalReferrals = referrals.Count(),
-                SuccessfulReferrals = referrals.Count(r => r.Status == ReferralStatus.Completed),
                 StartDate = startDate,
                 EndDate = endDate
             };
@@ -101,24 +99,22 @@ namespace TriplePrime.Data.Services
 
         public async Task<UserAnalytics> GetUserAnalyticsAsync(DateTime startDate, DateTime endDate)
         {
-            var foodPackSpec = new FoodPackSpecification();
-            foodPackSpec.ApplyDateRangeFilter(startDate, endDate);
-            
-            var paymentSpec = new PaymentSpecification();
-            paymentSpec.ApplyDateRangeFilter(startDate, endDate);
+            var foodPackPurchases = await _foodPackPurchaseRepository.ListAsync(new FoodPackPurchaseSpecification());
+            var payments = await _paymentRepository.ListAsync(new PaymentSpecification());
 
-            var foodPacks = await _foodPackRepository.ListAsync(foodPackSpec);
-            var payments = await _paymentRepository.ListAsync(paymentSpec);
+            // Filter by date range in memory
+            foodPackPurchases = foodPackPurchases.Where(fp => fp.PurchaseDate >= startDate && fp.PurchaseDate <= endDate);
+            payments = payments.Where(p => p.CreatedAt >= startDate && p.CreatedAt <= endDate);
 
-            var activeUsers = foodPacks.Select(fp => fp.UserId).Distinct().Count();
-            var repeatCustomers = foodPacks.GroupBy(fp => fp.UserId)
-                                         .Count(g => g.Count() > 1);
+            var activeUsers = foodPackPurchases.Select(fp => fp.UserId).Distinct().Count();
+            var repeatCustomers = foodPackPurchases.GroupBy(fp => fp.UserId)
+                                                 .Count(g => g.Count() > 1);
 
             return new UserAnalytics
             {
                 ActiveUsers = activeUsers,
                 RepeatCustomers = repeatCustomers,
-                AverageOrdersPerUser = activeUsers > 0 ? (double)foodPacks.Count() / activeUsers : 0,
+                AverageOrdersPerUser = activeUsers > 0 ? (double)foodPackPurchases.Count() / activeUsers : 0,
                 AverageSpendPerUser = activeUsers > 0 ? payments.Sum(p => p.Amount) / activeUsers : 0,
                 StartDate = startDate,
                 EndDate = endDate
@@ -143,6 +139,160 @@ namespace TriplePrime.Data.Services
             };
         }
 
+        public async Task<SalesTrendAnalytics> GetSalesTrendsAsync(DateTime startDate, DateTime endDate, string groupBy)
+        {
+            var foodPackPurchases = await _foodPackPurchaseRepository.ListAsync(new FoodPackPurchaseSpecification());
+            var payments = await _paymentRepository.ListAsync(new PaymentSpecification());
+
+            // Filter by date range
+            foodPackPurchases = foodPackPurchases.Where(fp => fp.PurchaseDate >= startDate && fp.PurchaseDate <= endDate);
+            payments = payments.Where(p => p.CreatedAt >= startDate && p.CreatedAt <= endDate);
+
+            var salesByPeriod = new List<PeriodSales>();
+            var currentDate = startDate;
+
+            while (currentDate <= endDate)
+            {
+                DateTime periodEnd;
+                switch (groupBy.ToLower())
+                {
+                    case "day":
+                        periodEnd = currentDate.AddDays(1);
+                        break;
+                    case "week":
+                        periodEnd = currentDate.AddDays(7);
+                        break;
+                    case "month":
+                        periodEnd = currentDate.AddMonths(1);
+                        break;
+                    default:
+                        periodEnd = currentDate.AddDays(1);
+                        break;
+                }
+
+                var periodPurchases = foodPackPurchases.Where(fp => fp.PurchaseDate >= currentDate && fp.PurchaseDate < periodEnd);
+                var periodPayments = payments.Where(p => p.CreatedAt >= currentDate && p.CreatedAt < periodEnd);
+
+                salesByPeriod.Add(new PeriodSales
+                {
+                    Period = currentDate.ToString("yyyy-MM-dd"),
+                    Amount = periodPayments.Sum(p => p.Amount),
+                    Count = periodPurchases.Count()
+                });
+
+                currentDate = periodEnd;
+            }
+
+            return new SalesTrendAnalytics
+            {
+                SalesByPeriod = salesByPeriod,
+                TopSellingPacks = await GetTopSellingPacksAsync(startDate, endDate),
+                StartDate = startDate,
+                EndDate = endDate
+            };
+        }
+
+        public async Task<UserGrowthAnalytics> GetUserGrowthAnalyticsAsync(DateTime startDate, DateTime endDate)
+        {
+            var users = await _userRepository.ListAsync(new UserSpecification());
+            var foodPackPurchases = await _foodPackPurchaseRepository.ListAsync(new FoodPackPurchaseSpecification());
+
+            // Filter by date range
+            users = users.Where(u => u.CreatedAt >= startDate && u.CreatedAt <= endDate);
+            foodPackPurchases = foodPackPurchases.Where(fp => fp.PurchaseDate >= startDate && fp.PurchaseDate <= endDate);
+
+            var userGrowth = new List<UserGrowthPoint>();
+            var currentDate = startDate;
+
+            while (currentDate <= endDate)
+            {
+                var nextDate = currentDate.AddDays(1);
+                var newUsers = users.Count(u => u.CreatedAt >= currentDate && u.CreatedAt < nextDate);
+                var activeUsers = foodPackPurchases
+                    .Where(fp => fp.PurchaseDate >= currentDate && fp.PurchaseDate < nextDate)
+                    .Select(fp => fp.UserId)
+                    .Distinct()
+                    .Count();
+
+                userGrowth.Add(new UserGrowthPoint
+                {
+                    Date = currentDate.ToString("yyyy-MM-dd"),
+                    NewUsers = newUsers,
+                    ActiveUsers = activeUsers
+                });
+
+                currentDate = nextDate;
+            }
+
+            return new UserGrowthAnalytics
+            {
+                UserGrowth = userGrowth,
+                UserDistribution = new UserDistribution
+                {
+                    ByRole = users.GroupBy(u => u.UserRoles.FirstOrDefault()?.RoleId ?? "Customer")
+                                .Select(g => new RoleDistribution { Role = g.Key, Count = g.Count() })
+                                .ToList(),
+                    ByStatus = users.GroupBy(u => u.IsActive ? "Active" : "Inactive")
+                                  .Select(g => new StatusDistribution { Status = g.Key, Count = g.Count() })
+                                  .ToList()
+                },
+                StartDate = startDate,
+                EndDate = endDate
+            };
+        }
+
+        public async Task<FoodPackAnalytics> GetFoodPackAnalyticsAsync(DateTime startDate, DateTime endDate)
+        {
+            var foodPacks = await _foodPackRepository.ListAsync(new FoodPackSpecification());
+            var foodPackPurchases = await _foodPackPurchaseRepository.ListAsync(new FoodPackPurchaseSpecification());
+
+            // Filter by date range
+            foodPackPurchases = foodPackPurchases.Where(fp => fp.PurchaseDate >= startDate && fp.PurchaseDate <= endDate);
+
+            var revenueByPack = foodPackPurchases
+                .GroupBy(fp => fp.FoodPackId)
+                .Select(g => new PackRevenue
+                {
+                    PackId = g.Key,
+                    Name = foodPacks.FirstOrDefault(p => p.Id == g.Key)?.Name ?? "Unknown",
+                    Purchases = g.Count(),
+                    Revenue = g.Sum(fp => fp.PurchasePrice)
+                })
+                .ToList();
+
+            return new FoodPackAnalytics
+            {
+                TotalPacks = foodPacks.Count(),
+                ActivePacks = foodPacks.Count(p => p.Available),
+                TotalPurchases = foodPackPurchases.Count(),
+                RevenueByPack = revenueByPack,
+                StartDate = startDate,
+                EndDate = endDate
+            };
+        }
+
+        private async Task<List<TopSellingPack>> GetTopSellingPacksAsync(DateTime startDate, DateTime endDate)
+        {
+            var foodPacks = await _foodPackRepository.ListAsync(new FoodPackSpecification());
+            var foodPackPurchases = await _foodPackPurchaseRepository.ListAsync(new FoodPackPurchaseSpecification());
+
+            // Filter by date range
+            foodPackPurchases = foodPackPurchases.Where(fp => fp.PurchaseDate >= startDate && fp.PurchaseDate <= endDate);
+
+            return foodPackPurchases
+                .GroupBy(fp => fp.FoodPackId)
+                .Select(g => new TopSellingPack
+                {
+                    PackId = g.Key,
+                    Name = foodPacks.FirstOrDefault(p => p.Id == g.Key)?.Name ?? "Unknown",
+                    Quantity = g.Count(),
+                    Revenue = g.Sum(fp => fp.PurchasePrice)
+                })
+                .OrderByDescending(p => p.Revenue)
+                .Take(10)
+                .ToList();
+        }
+
         public async Task<DashboardMetrics> GetDashboardMetricsAsync()
         {
             try
@@ -150,6 +300,7 @@ namespace TriplePrime.Data.Services
                 var marketers = await _marketerRepository.ListAsync(new MarketerSpecification());
                 var foodPacks = await _foodPackRepository.ListAsync(new FoodPackSpecification());
                 var payments = await _paymentRepository.ListAsync(new PaymentSpecification());
+                var foodPackPurchases = await _foodPackPurchaseRepository.ListAsync(new FoodPackPurchaseSpecification());
 
                 // Get users with their roles
                 var users = await _userRepository.ListAsync(new UserSpecification());
@@ -177,52 +328,5 @@ namespace TriplePrime.Data.Services
                 throw new Exception("Failed to retrieve dashboard metrics", ex);
             }
         }
-    }
-
-    public class SalesAnalytics
-    {
-        public int TotalOrders { get; set; }
-        public decimal TotalRevenue { get; set; }
-        public decimal AverageOrderValue { get; set; }
-        public DateTime StartDate { get; set; }
-        public DateTime EndDate { get; set; }
-    }
-
-    public class MarketingAnalytics
-    {
-        public int TotalMarketers { get; set; }
-        public int ActiveMarketers { get; set; }
-        public int TotalReferrals { get; set; }
-        public int SuccessfulReferrals { get; set; }
-        public DateTime StartDate { get; set; }
-        public DateTime EndDate { get; set; }
-    }
-
-    public class DeliveryAnalytics
-    {
-        public int TotalDeliveries { get; set; }
-        public int CompletedDeliveries { get; set; }
-        public TimeSpan AverageDeliveryTime { get; set; }
-        public DateTime StartDate { get; set; }
-        public DateTime EndDate { get; set; }
-    }
-
-    public class UserAnalytics
-    {
-        public int ActiveUsers { get; set; }
-        public int RepeatCustomers { get; set; }
-        public double AverageOrdersPerUser { get; set; }
-        public decimal AverageSpendPerUser { get; set; }
-        public DateTime StartDate { get; set; }
-        public DateTime EndDate { get; set; }
-    }
-
-    public class FinancialAnalytics
-    {
-        public decimal TotalRevenue { get; set; }
-        public decimal AverageTransactionValue { get; set; }
-        public Dictionary<PaymentMethodType, decimal> PaymentMethodBreakdown { get; set; }
-        public DateTime StartDate { get; set; }
-        public DateTime EndDate { get; set; }
     }
 } 

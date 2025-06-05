@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using System.Linq;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TriplePrime.Data.Models;
@@ -7,7 +8,9 @@ using TriplePrime.Data.Services;
 
 namespace TriplePrime.API.Controllers
 {
-  //  [Authorize]
+    [Authorize]
+    [ApiController]
+    [Route("api/[controller]")]
     public class AnalyticsController : BaseController
     {
         private readonly AnalyticsService _analyticsService;
@@ -25,91 +28,141 @@ namespace TriplePrime.API.Controllers
                 var metrics = await _analyticsService.GetDashboardMetricsAsync();
                 return HandleResponse(ApiResponse<DashboardMetrics>.SuccessResponse(metrics));
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 return HandleException(ex);
             }
         }
 
-        [HttpGet("food-pack")]
-        public async Task<IActionResult> GetFoodPackAnalytics([FromQuery] DateTime startDate, [FromQuery] DateTime endDate)
+        [HttpGet("sales/trends")]
+        public async Task<IActionResult> GetSalesTrends(
+            [FromQuery] DateTime startDate,
+            [FromQuery] DateTime endDate,
+            [FromQuery] string groupBy = "day")
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(groupBy) || !new[] { "day", "week", "month" }.Contains(groupBy.ToLower()))
+                {
+                    return BadRequest("groupBy must be one of: day, week, month");
+                }
+
+                var analytics = await _analyticsService.GetSalesTrendsAsync(startDate, endDate, groupBy);
+                return HandleResponse(ApiResponse<SalesTrendAnalytics>.SuccessResponse(analytics));
+            }
+            catch (Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpGet("users/growth")]
+        public async Task<IActionResult> GetUserGrowth(
+            [FromQuery] DateTime startDate,
+            [FromQuery] DateTime endDate)
+        {
+            try
+            {
+                var analytics = await _analyticsService.GetUserGrowthAnalyticsAsync(startDate, endDate);
+                return HandleResponse(ApiResponse<UserGrowthAnalytics>.SuccessResponse(analytics));
+            }
+            catch (Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpGet("foodpacks")]
+        public async Task<IActionResult> GetFoodPackAnalytics(
+            [FromQuery] DateTime startDate,
+            [FromQuery] DateTime endDate)
+        {
+            try
+            {
+                var analytics = await _analyticsService.GetFoodPackAnalyticsAsync(startDate, endDate);
+                return HandleResponse(ApiResponse<FoodPackAnalytics>.SuccessResponse(analytics));
+            }
+            catch (Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpGet("sales")]
+        public async Task<IActionResult> GetSalesAnalytics(
+            [FromQuery] DateTime startDate,
+            [FromQuery] DateTime endDate)
         {
             try
             {
                 var analytics = await _analyticsService.GetSalesAnalyticsAsync(startDate, endDate);
                 return HandleResponse(ApiResponse<SalesAnalytics>.SuccessResponse(analytics));
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 return HandleException(ex);
             }
         }
 
         [HttpGet("delivery")]
-        public async Task<IActionResult> GetDeliveryAnalytics([FromQuery] DateTime startDate, [FromQuery] DateTime endDate)
+        public async Task<IActionResult> GetDeliveryAnalytics(
+            [FromQuery] DateTime startDate,
+            [FromQuery] DateTime endDate)
         {
             try
             {
                 var analytics = await _analyticsService.GetDeliveryAnalyticsAsync(startDate, endDate);
                 return HandleResponse(ApiResponse<DeliveryAnalytics>.SuccessResponse(analytics));
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 return HandleException(ex);
             }
         }
 
         [HttpGet("user")]
-        public async Task<IActionResult> GetUserAnalytics([FromQuery] DateTime startDate, [FromQuery] DateTime endDate)
+        public async Task<IActionResult> GetUserAnalytics(
+            [FromQuery] DateTime startDate,
+            [FromQuery] DateTime endDate)
         {
             try
             {
                 var analytics = await _analyticsService.GetUserAnalyticsAsync(startDate, endDate);
                 return HandleResponse(ApiResponse<UserAnalytics>.SuccessResponse(analytics));
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 return HandleException(ex);
             }
         }
 
-        [HttpGet("payment")]
-        public async Task<IActionResult> GetPaymentAnalytics([FromQuery] DateTime startDate, [FromQuery] DateTime endDate)
+        [HttpGet("financial")]
+        public async Task<IActionResult> GetFinancialAnalytics(
+            [FromQuery] DateTime startDate,
+            [FromQuery] DateTime endDate)
         {
             try
             {
                 var analytics = await _analyticsService.GetFinancialAnalyticsAsync(startDate, endDate);
                 return HandleResponse(ApiResponse<FinancialAnalytics>.SuccessResponse(analytics));
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 return HandleException(ex);
             }
         }
 
-        [HttpGet("referral")]
-        public async Task<IActionResult> GetReferralAnalytics([FromQuery] DateTime startDate, [FromQuery] DateTime endDate)
+        [HttpGet("marketing")]
+        public async Task<IActionResult> GetMarketingAnalytics(
+            [FromQuery] DateTime startDate,
+            [FromQuery] DateTime endDate)
         {
             try
             {
                 var analytics = await _analyticsService.GetMarketingAnalyticsAsync(startDate, endDate);
                 return HandleResponse(ApiResponse<MarketingAnalytics>.SuccessResponse(analytics));
             }
-            catch (System.Exception ex)
-            {
-                return HandleException(ex);
-            }
-        }
-
-        [HttpGet("marketer")]
-        public async Task<IActionResult> GetMarketerAnalytics([FromQuery] DateTime startDate, [FromQuery] DateTime endDate)
-        {
-            try
-            {
-                var analytics = await _analyticsService.GetMarketingAnalyticsAsync(startDate, endDate);
-                return HandleResponse(ApiResponse<MarketingAnalytics>.SuccessResponse(analytics));
-            }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 return HandleException(ex);
             }
