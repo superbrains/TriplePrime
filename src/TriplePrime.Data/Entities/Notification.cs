@@ -8,7 +8,7 @@ namespace TriplePrime.Data.Entities
     {
         System,
         Email,
-        SMS,
+        Sms,
         Push
     }
 
@@ -37,20 +37,19 @@ namespace TriplePrime.Data.Entities
 
         [Required]
         [MaxLength(200)]
-        public string Title { get; set; }
+        public string Subject { get; set; }
 
         [Required]
         [MaxLength(1000)]
         public string Message { get; set; }
 
         [MaxLength(500)]
-        public string RecipientEmail { get; set; }
-
-        [MaxLength(20)]
-        public string RecipientPhone { get; set; }
+        public string Recipient { get; set; }
 
         [MaxLength(500)]
         public string ErrorMessage { get; set; }
+
+        public bool IsRead { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

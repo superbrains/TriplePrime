@@ -12,6 +12,7 @@ namespace TriplePrime.Data.Repositories
         {
             AddInclude(m => m.Referrals);
             AddInclude(m => m.Commissions);
+            AddInclude(m => m.User);
         }
 
         public MarketerSpecification(string userId)
@@ -19,6 +20,7 @@ namespace TriplePrime.Data.Repositories
         {
             AddInclude(m => m.Referrals);
             AddInclude(m => m.Commissions);
+            AddInclude(m => m.User);
         }
 
         public MarketerSpecification(bool isActive)
@@ -26,6 +28,7 @@ namespace TriplePrime.Data.Repositories
         {
             AddInclude(m => m.Referrals);
             AddInclude(m => m.Commissions);
+            AddInclude(m => m.User);
         }
 
         public MarketerSpecification(DateTime startDate, DateTime endDate)
@@ -33,12 +36,14 @@ namespace TriplePrime.Data.Repositories
         {
             AddInclude(m => m.Referrals);
             AddInclude(m => m.Commissions);
+            AddInclude(m => m.User);
         }
 
         public MarketerSpecification()
         {
             AddInclude(m => m.Referrals);
             AddInclude(m => m.Commissions);
+            AddInclude(m => m.User);
         }
 
         public void ApplySearchFilter(string searchTerm)

@@ -49,6 +49,13 @@ namespace TriplePrime.Data.Repositories
             AddInclude(c => c.Referral);
         }
 
+        public CommissionSpecification(int marketerId, DateTime startDate, DateTime endDate)
+            : base(c => c.MarketerId == marketerId && c.CreatedAt >= startDate && c.CreatedAt <= endDate)
+        {
+            AddInclude(c => c.Marketer);
+            AddInclude(c => c.Referral);
+        }
+
         public CommissionSpecification()
         {
             AddInclude(c => c.Marketer);

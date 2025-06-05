@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq.Expressions;
 using TriplePrime.Data.Interfaces;
 
-namespace TriplePrime.Data.Repositories
+namespace TriplePrime.Data.Interfaces
 {
     public abstract class BaseSpecification<T> : ISpecification<T>
     {

@@ -2,6 +2,7 @@ using System;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using TriplePrime.Data.Entities;
+using TriplePrime.Data.Configuration;
 
 namespace TriplePrime.Data
 {
@@ -30,6 +31,9 @@ namespace TriplePrime.Data
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);
+
+            // Apply configuration
+            builder.ApplyConfiguration(new ReferralConfiguration());
 
             // Configure ApplicationUser
             builder.Entity<ApplicationUser>()
@@ -131,19 +135,6 @@ namespace TriplePrime.Data
                 .HasForeignKey(pm => pm.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // Configure Referral
-            builder.Entity<Referral>()
-                .HasOne<ApplicationUser>()
-                .WithMany()
-                .HasForeignKey("ReferrerId")
-                .OnDelete(DeleteBehavior.Restrict);
-
-            builder.Entity<Referral>()
-                .HasOne(r => r.ReferredUser)
-                .WithMany()
-                .HasForeignKey(r => r.ReferredUserId)
-                .OnDelete(DeleteBehavior.Restrict);
-
             // Configure Report
             builder.Entity<Report>()
                 .HasOne(r => r.User)
@@ -159,22 +150,9 @@ namespace TriplePrime.Data
                 .OnDelete(DeleteBehavior.Restrict);
 
             builder.Entity<Marketer>()
-                .HasMany<Referral>()
-                .WithOne()
-                .HasForeignKey("MarketerId")
-                .OnDelete(DeleteBehavior.Restrict);
-
-            builder.Entity<Marketer>()
                 .HasMany(m => m.Commissions)
                 .WithOne(c => c.Marketer)
                 .HasForeignKey(c => c.MarketerId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            // Referral configuration
-            builder.Entity<Referral>()
-                .HasMany<Commission>()
-                .WithOne()
-                .HasForeignKey("ReferralId")
                 .OnDelete(DeleteBehavior.Restrict);
 
             // Commission configuration

@@ -253,6 +253,25 @@ namespace TriplePrime.API.Controllers
                 return StatusCode(500, new { message = "Error updating payment", error = ex.Message });
             }
         }
+
+        [HttpGet("admin/all")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> GetAllSavingsPlans([FromQuery] DateTime? startDate, [FromQuery] DateTime? endDate, [FromQuery] string status)
+        {
+            var plans = await _savingsPlanService.GetAllSavingsPlansForAdminAsync(startDate, endDate, status);
+            return Ok(plans);
+        }
+
+        [HttpGet("admin/{id}/schedule")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> GetSavingsPlanSchedule(int id)
+        {
+            var schedule = await _savingsPlanService.GetSavingsPlanScheduleAsync(id);
+            if (schedule == null)
+                return NotFound();
+
+            return Ok(schedule);
+        }
     }
 
     public class CreateSavingsPlanRequest

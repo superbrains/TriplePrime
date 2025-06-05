@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Payment Reminder - TriplePrime</title>
+    <title>Savings Plan Payment Reminder - TriplePrime</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -66,11 +66,23 @@
             color: #64748b;
             font-size: 14px;
         }
-        .payment-methods {
+        .plan-details {
             margin: 20px 0;
             padding: 20px;
             background: #f8fafc;
             border-radius: 6px;
+        }
+        .progress {
+            margin: 15px 0;
+            padding: 10px;
+            background: #e2e8f0;
+            border-radius: 4px;
+        }
+        .progress-bar {
+            height: 8px;
+            background: linear-gradient(to right, #f97316, #22c55e);
+            border-radius: 4px;
+            width: {{ProgressPercentage}}%;
         }
     </style>
 </head>
@@ -80,34 +92,38 @@
             <img src="cid:logo" alt="TriplePrime Logo" class="logo">
         </div>
         <div class="content">
-            <h1>Payment Reminder</h1>
+            <h1>Savings Plan Payment Reminder</h1>
             <p>Dear {{Name}},</p>
-            <p>This is a friendly reminder that your payment is due soon. Here are the details of your outstanding payment:</p>
+            <p>This is a friendly reminder about your upcoming savings plan payment. Here are the details:</p>
             
+            <div class="plan-details">
+                <h3>Savings Plan Details</h3>
+                <p><strong>Plan ID:</strong> {{PlanId}}</p>
+                <p><strong>Food Pack:</strong> {{FoodPackName}}</p>
+                <p><strong>Payment Frequency:</strong> {{PaymentFrequency}}</p>
+                <p><strong>Total Plan Amount:</strong> {{Currency}}{{TotalAmount}}</p>
+                <p><strong>Amount Paid So Far:</strong> {{Currency}}{{AmountPaid}}</p>
+                
+                <div class="progress">
+                    <div class="progress-bar"></div>
+                </div>
+                <p><small>Progress: {{ProgressPercentage}}% Complete</small></p>
+            </div>
+
             <div class="payment-details">
-                <p><strong>Invoice Number:</strong> {{InvoiceNumber}}</p>
-                <p><strong>Order Reference:</strong> {{OrderReference}}</p>
+                <h3>Upcoming Payment</h3>
+                <p><strong>Payment Reference:</strong> {{PaymentReference}}</p>
                 <div class="amount">Amount Due: {{Currency}}{{Amount}}</div>
                 <p class="due-date">Due Date: {{DueDate}}</p>
             </div>
 
-            <div class="payment-methods">
-                <h3>Payment Methods</h3>
-                <p>You can pay using any of the following methods:</p>
-                <ul>
-                    <li>Credit/Debit Card</li>
-                    <li>Bank Transfer</li>
-                    <li>Mobile Money</li>
-                </ul>
-            </div>
-
             <center>
-                <a href="{{PaymentUrl}}" class="button">Pay Now</a>
+                <a href="{{PaymentUrl}}" class="button">Make Payment Now</a>
             </center>
 
-            <p>If you have already made the payment, please disregard this reminder and accept our thanks.</p>
+            <p>If you have already made this payment, please disregard this reminder and accept our thanks.</p>
             
-            <p>If you have any questions about this payment or need to make alternative arrangements, please don't hesitate to contact our support team.</p>
+            <p>If you have any questions about your savings plan or need assistance with your payment, please don't hesitate to contact our support team.</p>
             
             <p>Best regards,<br>The TriplePrime Team</p>
         </div>

@@ -13,10 +13,40 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Text;
 using Microsoft.Extensions.Logging;
+using TriplePrime.Data.Repositories;
 
 namespace TriplePrime.Data.Services
 {
-    public class AuthenticationService 
+    public class ServiceResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+    }
+
+    public interface IAuthenticationService
+    {
+        Task<AuthenticationResult> LoginAsync(string email, string password);
+        Task<AuthenticationResult> RegisterAsync(ApplicationUser user, string password, string referralCode = null);
+        Task LogoutAsync();
+        Task<AuthenticationResult> ResetPasswordAsync(string email, string token, string newPassword);
+        Task<string> GeneratePasswordResetTokenAsync(string email);
+        Task<bool> ValidateTokenAsync(string userId, string token, string purpose);
+        Task<AuthenticationResult> ChangePasswordAsync(string userId, string currentPassword, string newPassword);
+        Task<bool> ValidateCredentialsAsync(string email, string password);
+        Task<ApplicationUser> GetUserByEmailAsync(string email);
+        Task<bool> CreateUserAsync(ApplicationUser user, string password);
+        Task<bool> LockUserAsync(string userId);
+        Task<bool> UnlockUserAsync(string userId);
+        Task<bool> IsLockedOutAsync(string userId);
+        Task<IEnumerable<UserDetails>> GetAllUsersAsync();
+        Task<UserDetails> UpdateUserAsync(string userId, UpdateUserRequest request);
+        Task DeleteUserAsync(string userId);
+        Task<UserDetails> ChangeUserStatusAsync(string userId, string status);
+        Task<ServiceResponse> ForgotPasswordAsync(string email);
+        Task<ServiceResponse> ResetPasswordWithTokenAsync(string email, string token, string newPassword);
+    }
+
+    public class AuthenticationService : IAuthenticationService
     {
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly SignInManager<ApplicationUser> _signInManager;
@@ -120,7 +150,7 @@ namespace TriplePrime.Data.Services
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
 
-        public async Task<AuthenticationResult> RegisterAsync(ApplicationUser user, string password)
+        public async Task<AuthenticationResult> RegisterAsync(ApplicationUser user, string password, string referralCode = null)
         {
             await _unitOfWork.BeginTransactionAsync();
             try
@@ -138,6 +168,29 @@ namespace TriplePrime.Data.Services
                 // Add default claims
                 await _userManager.AddClaimAsync(user, new Claim("user_type", "customer"));
                 await _userManager.AddToRoleAsync(user, "Customer");
+
+                // Handle referral if referral code is provided
+                if (!string.IsNullOrEmpty(referralCode))
+                {
+                    var marketerSpec = new MarketerSpecification(referralCode);
+                    var marketer = await _unitOfWork.Repository<Marketer>().GetEntityWithSpec(marketerSpec);
+                    
+                    if (marketer != null)
+                    {
+                        var referral = new Referral
+                        {
+                            MarketerId = marketer.UserId,
+                            ReferredUserId = user.Id,
+                            ReferralCode = referralCode,
+                            Status = ReferralStatus.Pending,
+                            CommissionAmount = 0, // Will be calculated when the customer makes a purchase
+                            CommissionPaid = false,
+                            ReferralDate = DateTime.UtcNow
+                        };
+
+                        await _unitOfWork.Repository<Referral>().AddAsync(referral);
+                    }
+                }
 
                 await _unitOfWork.SaveChangesAsync();
                 await _unitOfWork.CommitTransactionAsync();
@@ -343,6 +396,7 @@ namespace TriplePrime.Data.Services
                         Id = user.Id,
                         Name = $"{user.FirstName} {user.LastName}".Trim(),
                         Email = user.Email,
+                        PhoneNumber = user.PhoneNumber,
                         Role = roles.FirstOrDefault() ?? "Customer",
                         Status = !user.IsActive ? "Inactive" : isLocked ? "Locked" : "Active",
                         RegistrationDate = user.CreatedAt
@@ -404,6 +458,7 @@ namespace TriplePrime.Data.Services
                 Id = user.Id,
                 Name = $"{user.FirstName} {user.LastName}".Trim(),
                 Email = user.Email,
+                PhoneNumber = user.PhoneNumber,
                 Role = roles.FirstOrDefault() ?? "Customer",
                 Status = !user.IsActive ? "Inactive" : isLocked ? "Locked" : "Active",
                 RegistrationDate = user.CreatedAt
@@ -465,10 +520,75 @@ namespace TriplePrime.Data.Services
                 Id = user.Id,
                 Name = $"{user.FirstName} {user.LastName}".Trim(),
                 Email = user.Email,
+                PhoneNumber = user.PhoneNumber,
                 Role = roles.FirstOrDefault() ?? "Customer",
                 Status = !user.IsActive ? "Inactive" : isLocked ? "Locked" : "Active",
                 RegistrationDate = user.CreatedAt
             };
+        }
+
+        public async Task<ServiceResponse> ForgotPasswordAsync(string email)
+        {
+            try
+            {
+                var user = await _userManager.FindByEmailAsync(email);
+                if (user == null)
+                {
+                    // Return success even if user doesn't exist to prevent email enumeration
+                    return new ServiceResponse { Success = true, Message = "If your email is registered, you will receive password reset instructions." };
+                }
+
+                var token = await _userManager.GeneratePasswordResetTokenAsync(user);
+                var resetLink = $"{_configuration["FrontendUrl"]}/reset-password?email={Uri.EscapeDataString(email)}&token={Uri.EscapeDataString(token)}";
+
+                var emailBody = $@"
+                    <h2>Password Reset Request</h2>
+                    <p>Hello {user.FirstName},</p>
+                    <p>We received a request to reset your password. Click the link below to reset your password:</p>
+                    <p><a href='{resetLink}'>Reset Password</a></p>
+                    <p>If you didn't request this, you can safely ignore this email.</p>
+                    <p>This link will expire in 1 hour.</p>
+                    <p>Best regards,<br>TriplePrime Team</p>";
+
+                await _emailService.SendEmailAsync(
+                    email,
+                    "Reset Your Password - TriplePrime",
+                    emailBody
+                );
+
+                return new ServiceResponse { Success = true, Message = "Password reset instructions have been sent to your email." };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in ForgotPasswordAsync for email: {Email}", email);
+                return new ServiceResponse { Success = false, Message = "An error occurred while processing your request." };
+            }
+        }
+
+        public async Task<ServiceResponse> ResetPasswordWithTokenAsync(string email, string token, string newPassword)
+        {
+            try
+            {
+                var user = await _userManager.FindByEmailAsync(email);
+                if (user == null)
+                {
+                    return new ServiceResponse { Success = false, Message = "Invalid request." };
+                }
+
+                var result = await _userManager.ResetPasswordAsync(user, token, newPassword);
+                if (result.Succeeded)
+                {
+                    return new ServiceResponse { Success = true, Message = "Your password has been reset successfully." };
+                }
+
+                var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+                return new ServiceResponse { Success = false, Message = errors };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in ResetPasswordWithTokenAsync for email: {Email}", email);
+                return new ServiceResponse { Success = false, Message = "An error occurred while resetting your password." };
+            }
         }
     }
 
@@ -486,6 +606,7 @@ namespace TriplePrime.Data.Services
         public string Id { get; set; }
         public string Name { get; set; }
         public string Email { get; set; }
+        public string PhoneNumber { get; set; }
         public string Role { get; set; }
         public string Status { get; set; }
         public DateTime RegistrationDate { get; set; }

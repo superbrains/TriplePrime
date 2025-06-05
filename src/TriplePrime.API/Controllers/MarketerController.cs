@@ -35,7 +35,7 @@ namespace TriplePrime.API.Controllers
         }
 
         [HttpGet("{id}")]
-        public async Task<IActionResult> GetMarketerById(int id)
+        public async Task<IActionResult> GetMarketerById(string id)
         {
             try
             {
@@ -67,7 +67,7 @@ namespace TriplePrime.API.Controllers
         }
 
         [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateMarketer(int id, [FromBody] UpdateMarketerRequest request)
+        public async Task<IActionResult> UpdateMarketer(string id, [FromBody] UpdateMarketerRequest request)
         {
             try
             {
@@ -81,7 +81,7 @@ namespace TriplePrime.API.Controllers
         }
 
         [HttpPatch("{id}/commission")]
-        public async Task<IActionResult> UpdateCommissionRate(int id, [FromBody] decimal newRate)
+        public async Task<IActionResult> UpdateCommissionRate(string id, [FromBody] decimal newRate)
         {
             try
             {
@@ -95,7 +95,7 @@ namespace TriplePrime.API.Controllers
         }
 
         [HttpPatch("{id}/status")]
-        public async Task<IActionResult> ChangeStatus(int id, [FromBody] bool isActive)
+        public async Task<IActionResult> ChangeStatus(string id, [FromBody] bool isActive)
         {
             try
             {
@@ -109,7 +109,7 @@ namespace TriplePrime.API.Controllers
         }
 
         [HttpGet("{id}/performance")]
-        public async Task<IActionResult> GetMarketerPerformance(int id, [FromQuery] DateTime startDate, [FromQuery] DateTime endDate)
+        public async Task<IActionResult> GetMarketerPerformance(string id, [FromQuery] DateTime startDate, [FromQuery] DateTime endDate)
         {
             try
             {
@@ -130,6 +130,34 @@ namespace TriplePrime.API.Controllers
                 var marketers = await _marketerService.GetAllMarketersAsync();
                 var activeMarketers = marketers.Where(m => m.Status == "active");
                 return HandleResponse(ApiResponse<IEnumerable<MarketerDetails>>.SuccessResponse(activeMarketers));
+            }
+            catch (Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpGet("{id}/customers")]
+        public async Task<IActionResult> GetReferredCustomers(string id)
+        {
+            try
+            {
+                var customers = await _marketerService.GetReferredCustomersAsync(id);
+                return HandleResponse(ApiResponse<IEnumerable<ReferredCustomerDetails>>.SuccessResponse(customers));
+            }
+            catch (Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpGet("{id}/commissions")]
+        public async Task<IActionResult> GetCustomerCommissions(string id)
+        {
+            try
+            {
+                var commissions = await _marketerService.GetCustomerCommissionsAsync(id);
+                return HandleResponse(ApiResponse<IEnumerable<CustomerCommissionDetails>>.SuccessResponse(commissions));
             }
             catch (Exception ex)
             {

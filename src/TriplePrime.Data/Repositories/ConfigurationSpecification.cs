@@ -1,10 +1,11 @@
 using System;
 using System.Linq.Expressions;
 using TriplePrime.Data.Entities;
+using TriplePrime.Data.Interfaces;
 
 namespace TriplePrime.Data.Repositories
 {
-    public class ConfigurationSpecification : BaseSpecification<Configuration>
+    public class ConfigurationSpecification : BaseSpecification<TriplePrime.Data.Entities.Configuration>
     {
         public ConfigurationSpecification(int id)
             : base(c => c.Id == id)

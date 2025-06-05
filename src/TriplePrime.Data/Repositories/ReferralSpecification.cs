@@ -21,11 +21,13 @@ namespace TriplePrime.Data.Repositories
             AddInclude(r => r.ReferredUser);
         }
 
-        public ReferralSpecification(int marketerId, bool isMarketer)
+        public ReferralSpecification(string marketerId, bool isMarketer)
             : base(r => r.MarketerId == marketerId)
         {
             AddInclude(r => r.Marketer);
             AddInclude(r => r.ReferredUser);
+            AddInclude(r => r.ReferredUser.SavingsPlans);
+            ApplyOrderByDescending(r => r.CreatedAt);
         }
 
         public ReferralSpecification(string referredUserId, bool isReferredUser, bool dummy)
@@ -44,6 +46,13 @@ namespace TriplePrime.Data.Repositories
 
         public ReferralSpecification(DateTime startDate, DateTime endDate)
             : base(r => r.CreatedAt >= startDate && r.CreatedAt <= endDate)
+        {
+            AddInclude(r => r.Marketer);
+            AddInclude(r => r.ReferredUser);
+        }
+
+        public ReferralSpecification(string marketerId, DateTime startDate, DateTime endDate)
+            : base(r => r.MarketerId == marketerId && r.CreatedAt >= startDate && r.CreatedAt <= endDate)
         {
             AddInclude(r => r.Marketer);
             AddInclude(r => r.ReferredUser);

@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using TriplePrime.Data;
 
@@ -11,9 +12,11 @@ using TriplePrime.Data;
 namespace TriplePrime.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250603062002_marketdetails")]
+    partial class marketdetails
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1446,7 +1449,7 @@ namespace TriplePrime.Data.Migrations
                         .HasForeignKey("PaymentMethodId");
 
                     b.HasOne("TriplePrime.Data.Entities.ApplicationUser", "User")
-                        .WithMany("SavingsPlans")
+                        .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -1473,8 +1476,6 @@ namespace TriplePrime.Data.Migrations
                     b.Navigation("Referrals");
 
                     b.Navigation("Reports");
-
-                    b.Navigation("SavingsPlans");
 
                     b.Navigation("UserRoles");
                 });

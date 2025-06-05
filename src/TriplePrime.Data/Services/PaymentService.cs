@@ -11,6 +11,7 @@ using System.Net.Http;
 using System.Text;
 using Microsoft.Extensions.Configuration;
 using TriplePrime.Data.Models;
+using Microsoft.Extensions.Logging;
 
 namespace TriplePrime.Data.Services
 {
@@ -286,57 +287,6 @@ namespace TriplePrime.Data.Services
             return BitConverter.ToString(hash).Replace("-", "").ToLower();
         }
 
-        //private async Task HandleSuccessfulPayment(WebhookData data)
-        //{
-        //    // Check if this is a subscription payment
-        //    if (!string.IsNullOrEmpty(data.SubscriptionCode))
-        //    {
-        //        await HandleSubscriptionPayment(data);
-        //        return;
-        //    }
-
-        //    var payment = await GetPaymentByReferenceAsync(data.Reference);
-        //    if (payment != null)
-        //    {
-        //        payment.Status = PaymentStatus.Completed;
-        //        payment.UpdatedAt = DateTime.UtcNow;
-        //        _unitOfWork.Repository<Payment>().Update(payment);
-        //        await _unitOfWork.SaveChangesAsync();
-        //    }
-        //}
-
-        //private async Task HandleSubscriptionPayment(WebhookData data)
-        //{
-        //    // Find the savings plan associated with this subscription
-        //    var savingsPlanService = new SavingsPlanService(_unitOfWork, this);
-        //    var plan = await savingsPlanService.GetSavingsPlanBySubscriptionCodeAsync(data.SubscriptionCode);
-            
-        //    if (plan != null)
-        //    {
-        //        // Process the payment for the next due schedule
-        //        await savingsPlanService.ProcessPaymentAsync(plan.Id, data.Amount / 100, data.Reference);
-        //    }
-        //}
-
-        //private async Task HandleSubscriptionCreated(WebhookData data)
-        //{
-        //    // Update the savings plan with subscription details
-        //    var savingsPlanService = new SavingsPlanService(_unitOfWork, this);
-        //    await savingsPlanService.UpdateSubscriptionDetailsAsync(data.Customer, data.SubscriptionCode);
-        //}
-
-        //private async Task HandleSubscriptionDisabled(WebhookData data)
-        //{
-        //    // Update the savings plan status
-        //    var savingsPlanService = new SavingsPlanService(_unitOfWork, this);
-        //    var plan = await savingsPlanService.GetSavingsPlanBySubscriptionCodeAsync(data.SubscriptionCode);
-            
-        //    if (plan != null)
-        //    {
-        //        await savingsPlanService.UpdateSavingsPlanStatusAsync(plan.Id, "Cancelled");
-        //    }
-        //}
-
         private async Task<Payment> GetPaymentByReferenceAsync(string reference)
         {
             var spec = new PaymentSpecification();
@@ -391,24 +341,6 @@ namespace TriplePrime.Data.Services
             spec.ApplyFoodPackFilter(foodPackId);
             return await _unitOfWork.Repository<Payment>().ListAsync(spec);
         }
-
-        //public async Task HandlePaystackWebhookAsync(string payload)
-        //{
-        //    var webhookData = JsonSerializer.Deserialize<PaystackWebhookData>(payload);
-            
-        //    switch (webhookData.Event)
-        //    {
-        //        case "charge.success":
-        //            await HandleSuccessfulPayment(webhookData.Data);
-        //            break;
-        //        case "subscription.create":
-        //            await HandleSubscriptionCreated(webhookData.Data);
-        //            break;
-        //        case "subscription.disable":
-        //            await HandleSubscriptionDisabled(webhookData.Data);
-        //            break;
-        //    }
-        //}
 
         public async Task<int> CreatePaymentMethodAsync(PaymentMethod paymentMethod)
         {
