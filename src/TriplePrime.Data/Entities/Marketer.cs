@@ -41,9 +41,17 @@ namespace TriplePrime.Data.Entities
         [MaxLength(100)]
         public string SocialMediaHandle { get; set; }
 
+        [Required]
+        [Range(0, 0.25)]
+        public decimal CommissionRate { get; set; }
+
         public decimal TotalCommissionEarned { get; set; }
 
         public decimal CurrentBalance { get; set; }
+
+        public int TotalCustomers { get; set; }
+
+        public decimal TotalSales { get; set; }
 
         public bool IsActive { get; set; } = true;
 
@@ -53,7 +61,7 @@ namespace TriplePrime.Data.Entities
 
         public string CreatedBy { get; set; }
 
-        public string UpdatedBy { get; set; }
+        public string UpdatedBy { get; set; } = "Admin";
 
         // Navigation properties
         public ICollection<Referral> Referrals { get; set; }

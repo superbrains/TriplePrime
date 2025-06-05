@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Reminder - TriplePrime</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            background-color: #f8fafc;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            text-align: center;
+            padding: 20px 0;
+            background: linear-gradient(to right, #f97316, #22c55e);
+            border-radius: 8px 8px 0 0;
+        }
+        .logo {
+            max-width: 200px;
+            height: auto;
+        }
+        .content {
+            padding: 30px;
+            color: #334155;
+        }
+        .payment-details {
+            background-color: #f1f5f9;
+            border-radius: 6px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .amount {
+            font-size: 24px;
+            font-weight: bold;
+            color: #f97316;
+            margin: 10px 0;
+        }
+        .due-date {
+            color: #ef4444;
+            font-weight: bold;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 24px;
+            background: linear-gradient(to right, #f97316, #22c55e);
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #64748b;
+            font-size: 14px;
+        }
+        .payment-methods {
+            margin: 20px 0;
+            padding: 20px;
+            background: #f8fafc;
+            border-radius: 6px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="cid:logo" alt="TriplePrime Logo" class="logo">
+        </div>
+        <div class="content">
+            <h1>Payment Reminder</h1>
+            <p>Dear {{Name}},</p>
+            <p>This is a friendly reminder that your payment is due soon. Here are the details of your outstanding payment:</p>
+            
+            <div class="payment-details">
+                <p><strong>Invoice Number:</strong> {{InvoiceNumber}}</p>
+                <p><strong>Order Reference:</strong> {{OrderReference}}</p>
+                <div class="amount">Amount Due: {{Currency}}{{Amount}}</div>
+                <p class="due-date">Due Date: {{DueDate}}</p>
+            </div>
+
+            <div class="payment-methods">
+                <h3>Payment Methods</h3>
+                <p>You can pay using any of the following methods:</p>
+                <ul>
+                    <li>Credit/Debit Card</li>
+                    <li>Bank Transfer</li>
+                    <li>Mobile Money</li>
+                </ul>
+            </div>
+
+            <center>
+                <a href="{{PaymentUrl}}" class="button">Pay Now</a>
+            </center>
+
+            <p>If you have already made the payment, please disregard this reminder and accept our thanks.</p>
+            
+            <p>If you have any questions about this payment or need to make alternative arrangements, please don't hesitate to contact our support team.</p>
+            
+            <p>Best regards,<br>The TriplePrime Team</p>
+        </div>
+        <div class="footer">
+            <p>© {{CurrentYear}} TriplePrime Int'l LTD. All rights reserved.</p>
+            <p>This is an automated reminder. Please do not reply to this email.</p>
+        </div>
+    </div>
+</body>
+</html> 

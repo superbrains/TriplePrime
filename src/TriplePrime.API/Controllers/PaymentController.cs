@@ -1,22 +1,39 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TriplePrime.Data.Entities;
 using TriplePrime.Data.Models;
 using TriplePrime.Data.Services;
+using System.Net.Http;
+using System.Text.Json;
+using Microsoft.Extensions.Configuration;
+using System.Security.Claims;
 
 namespace TriplePrime.API.Controllers
 {
     [Authorize]
+    [ApiController]
+    [Route("api/[controller]")]
     public class PaymentController : BaseController
     {
         private readonly PaymentService _paymentService;
+        private readonly IConfiguration _configuration;
+        private readonly HttpClient _httpClient;
+        private readonly IPaymentMethodService _paymentMethodService;
 
-        public PaymentController(PaymentService paymentService)
+        public PaymentController(
+            PaymentService paymentService,
+            IConfiguration configuration,
+            HttpClient httpClient,
+            IPaymentMethodService paymentMethodService)
         {
             _paymentService = paymentService;
+            _configuration = configuration;
+            _httpClient = httpClient;
+            _paymentMethodService = paymentMethodService;
         }
 
         [HttpPost]
@@ -158,6 +175,84 @@ namespace TriplePrime.API.Controllers
             catch (System.Exception ex)
             {
                 return HandleException(ex);
+            }
+        }
+
+        [HttpGet("verify/{reference}")]
+        public async Task<IActionResult> VerifyTransaction(string reference)
+        {
+            try
+            {
+                var paystackSecretKey = _configuration["Paystack:SecretKey"];
+                _httpClient.DefaultRequestHeaders.Authorization = 
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", paystackSecretKey);
+
+                var response = await _httpClient.GetAsync($"https://api.paystack.co/transaction/verify/{reference}");
+                var content = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    return BadRequest(new { message = "Failed to verify transaction", details = content });
+                }
+
+                var result = JsonSerializer.Deserialize<object>(content);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Error verifying transaction", error = ex.Message });
+            }
+        }
+
+        [HttpPost("initialize-paystack")]
+        public async Task<IActionResult> InitializePaystackPayment([FromBody] PaystackInitializeRequest request)
+        {
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Unauthorized();
+            }
+
+            try
+            {
+                var response = await _paymentService.InitializePaystackPaymentAsync(request, userId);
+                return Ok(response);
+            }
+            catch (System.Exception ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+        }
+
+        [HttpGet("verify-paystack/{reference}")]
+        public async Task<IActionResult> VerifyPaystackPayment(string reference)
+        {
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Unauthorized();
+            }
+
+            try
+            {
+                var response = await _paymentService.VerifyPaystackPaymentAsync(reference, userId);
+                
+                // If payment is successful and it's an automatic payment, save the payment method
+                if (response.Status == "success" && response.Metadata?.CustomFields?.Any(f => f.VariableName == "is_automatic" && f.Value?.ToString()?.ToLower() == "true") == true)
+                {
+                    await _paymentMethodService.SavePaystackPaymentMethodAsync(
+                        userId,
+                        response.Authorization,
+                        response.Customer,
+                        response.Channel
+                    );
+                }
+
+                return Ok(response);
+            }
+            catch (System.Exception ex)
+            {
+                return BadRequest(new { error = ex.Message });
             }
         }
     }

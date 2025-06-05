@@ -14,6 +14,7 @@ namespace TriplePrime.Data
 
         public DbSet<FoodPack> FoodPacks { get; set; }
         public DbSet<FoodPackItem> FoodPackItems { get; set; }
+        public DbSet<FoodPackPurchase> FoodPackPurchases { get; set; }
         public DbSet<SavingsPlan> SavingsPlans { get; set; }
         public DbSet<Payment> Payments { get; set; }
         public DbSet<DeliveryAddress> DeliveryAddresses { get; set; }
@@ -92,16 +93,23 @@ namespace TriplePrime.Data
 
             // Configure FoodPack
             builder.Entity<FoodPack>()
-                .HasOne(fp => fp.User)
-                .WithMany()
-                .HasForeignKey(fp => fp.UserId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            builder.Entity<FoodPack>()
                 .HasMany(fp => fp.Items)
                 .WithOne(fpi => fpi.FoodPack)
                 .HasForeignKey(fpi => fpi.FoodPackId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            // Configure FoodPackPurchase
+            builder.Entity<FoodPackPurchase>()
+                .HasOne(fpp => fpp.User)
+                .WithMany()
+                .HasForeignKey(fpp => fpp.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<FoodPackPurchase>()
+                .HasOne(fpp => fpp.FoodPack)
+                .WithMany()
+                .HasForeignKey(fpp => fpp.FoodPackId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             // Configure Payment
             builder.Entity<Payment>()

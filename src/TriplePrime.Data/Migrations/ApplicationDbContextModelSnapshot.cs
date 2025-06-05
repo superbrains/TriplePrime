@@ -520,6 +520,9 @@ namespace TriplePrime.Data.Migrations
                     b.Property<string>("ApplicationUserId")
                         .HasColumnType("nvarchar(450)");
 
+                    b.Property<bool>("Available")
+                        .HasColumnType("bit");
+
                     b.Property<string>("Category")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -527,45 +530,50 @@ namespace TriplePrime.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<DateTime?>("DeliveryDate")
-                        .HasColumnType("datetime2");
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int>("Duration")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("Featured")
+                        .HasColumnType("bit");
+
                     b.Property<string>("ImageUrl")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Inventory")
+                        .HasColumnType("int");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<int>("PopularityScore")
-                        .HasColumnType("int");
+                    b.Property<decimal>("OriginalPrice")
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<decimal>("Price")
                         .HasColumnType("decimal(18,2)");
 
-                    b.Property<decimal>("Rating")
+                    b.Property<decimal>("Savings")
                         .HasColumnType("decimal(18,2)");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("int");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("UserId")
+                    b.Property<string>("UpdatedBy")
                         .IsRequired()
-                        .HasColumnType("nvarchar(450)");
+                        .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
 
                     b.HasIndex("ApplicationUserId");
-
-                    b.HasIndex("UserId");
 
                     b.ToTable("FoodPacks");
                 });
@@ -581,32 +589,69 @@ namespace TriplePrime.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<int>("FoodPackId")
                         .HasColumnType("int");
 
-                    b.Property<string>("Name")
+                    b.Property<string>("Item")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
-
-                    b.Property<decimal>("Quantity")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<string>("Unit")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime2");
 
                     b.HasKey("Id");
 
                     b.HasIndex("FoodPackId");
 
                     b.ToTable("FoodPackItems");
+                });
+
+            modelBuilder.Entity("TriplePrime.Data.Entities.FoodPackPurchase", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("DeliveryDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("FoodPackId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("PurchaseDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("PurchasePrice")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FoodPackId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("FoodPackPurchases");
                 });
 
             modelBuilder.Entity("TriplePrime.Data.Entities.Marketer", b =>
@@ -626,6 +671,9 @@ namespace TriplePrime.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<decimal>("CommissionRate")
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<string>("CompanyName")
                         .IsRequired()
@@ -671,6 +719,12 @@ namespace TriplePrime.Data.Migrations
                         .HasColumnType("nvarchar(100)");
 
                     b.Property<decimal>("TotalCommissionEarned")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("TotalCustomers")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("TotalSales")
                         .HasColumnType("decimal(18,2)");
 
                     b.Property<DateTime?>("UpdatedAt")
@@ -732,6 +786,10 @@ namespace TriplePrime.Data.Migrations
                     b.Property<string>("ApplicationUserId")
                         .HasColumnType("nvarchar(450)");
 
+                    b.Property<string>("CallbackUrl")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
@@ -746,9 +804,6 @@ namespace TriplePrime.Data.Migrations
                         .HasColumnType("int");
 
                     b.Property<int?>("PaymentMethodId1")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("SavingsPlanId")
                         .HasColumnType("int");
 
                     b.Property<int>("Status")
@@ -775,8 +830,6 @@ namespace TriplePrime.Data.Migrations
 
                     b.HasIndex("PaymentMethodId1");
 
-                    b.HasIndex("SavingsPlanId");
-
                     b.HasIndex("UserId");
 
                     b.ToTable("Payments");
@@ -790,8 +843,24 @@ namespace TriplePrime.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("AuthorizationCode")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Bank")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("CardType")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<bool>("IsDefault")
                         .HasColumnType("bit");
@@ -804,11 +873,16 @@ namespace TriplePrime.Data.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<int>("Type")
-                        .HasColumnType("int");
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("UserId")
                         .IsRequired()
@@ -819,6 +893,55 @@ namespace TriplePrime.Data.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("PaymentMethods");
+                });
+
+            modelBuilder.Entity("TriplePrime.Data.Entities.PaymentSchedule", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("DueDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("PaidAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("PaymentReference")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("SavingsPlanId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SavingsPlanId");
+
+                    b.ToTable("PaymentSchedule");
                 });
 
             modelBuilder.Entity("TriplePrime.Data.Entities.Referral", b =>
@@ -981,17 +1104,39 @@ namespace TriplePrime.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<int>("DurationInMonths")
-                        .HasColumnType("int");
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<DateTime>("ExpectedCompletionDate")
-                        .HasColumnType("datetime2");
+                    b.Property<int>("Duration")
+                        .HasColumnType("int");
 
                     b.Property<int>("FoodPackId")
                         .HasColumnType("int");
 
-                    b.Property<decimal>("MonthlyPayment")
+                    b.Property<DateTime?>("LastPaymentDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("MonthlyAmount")
                         .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("PaymentFrequency")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("PaymentMethodId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PaymentPreference")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PlanCode")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("RemindersEnabled")
+                        .HasColumnType("bit");
 
                     b.Property<DateTime>("StartDate")
                         .HasColumnType("datetime2");
@@ -1000,11 +1145,19 @@ namespace TriplePrime.Data.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("SubscriptionCode")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<decimal>("TotalAmount")
                         .HasColumnType("decimal(18,2)");
 
-                    b.Property<DateTime?>("UpdatedAt")
+                    b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("UserId")
                         .IsRequired()
@@ -1012,8 +1165,9 @@ namespace TriplePrime.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("FoodPackId")
-                        .IsUnique();
+                    b.HasIndex("FoodPackId");
+
+                    b.HasIndex("PaymentMethodId");
 
                     b.HasIndex("UserId");
 
@@ -1164,14 +1318,6 @@ namespace TriplePrime.Data.Migrations
                     b.HasOne("TriplePrime.Data.Entities.ApplicationUser", null)
                         .WithMany("FoodPacks")
                         .HasForeignKey("ApplicationUserId");
-
-                    b.HasOne("TriplePrime.Data.Entities.ApplicationUser", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("TriplePrime.Data.Entities.FoodPackItem", b =>
@@ -1183,6 +1329,25 @@ namespace TriplePrime.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("FoodPack");
+                });
+
+            modelBuilder.Entity("TriplePrime.Data.Entities.FoodPackPurchase", b =>
+                {
+                    b.HasOne("TriplePrime.Data.Entities.FoodPack", "FoodPack")
+                        .WithMany()
+                        .HasForeignKey("FoodPackId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TriplePrime.Data.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("FoodPack");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("TriplePrime.Data.Entities.Marketer", b =>
@@ -1216,10 +1381,6 @@ namespace TriplePrime.Data.Migrations
                         .WithMany("Payments")
                         .HasForeignKey("PaymentMethodId1");
 
-                    b.HasOne("TriplePrime.Data.Entities.SavingsPlan", null)
-                        .WithMany("Payments")
-                        .HasForeignKey("SavingsPlanId");
-
                     b.HasOne("TriplePrime.Data.Entities.ApplicationUser", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
@@ -1242,6 +1403,17 @@ namespace TriplePrime.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("TriplePrime.Data.Entities.PaymentSchedule", b =>
+                {
+                    b.HasOne("TriplePrime.Data.Entities.SavingsPlan", "SavingsPlan")
+                        .WithMany("PaymentSchedules")
+                        .HasForeignKey("SavingsPlanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SavingsPlan");
                 });
 
             modelBuilder.Entity("TriplePrime.Data.Entities.Referral", b =>
@@ -1296,10 +1468,14 @@ namespace TriplePrime.Data.Migrations
             modelBuilder.Entity("TriplePrime.Data.Entities.SavingsPlan", b =>
                 {
                     b.HasOne("TriplePrime.Data.Entities.FoodPack", "FoodPack")
-                        .WithOne("SavingsPlan")
-                        .HasForeignKey("TriplePrime.Data.Entities.SavingsPlan", "FoodPackId")
+                        .WithMany()
+                        .HasForeignKey("FoodPackId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("TriplePrime.Data.Entities.PaymentMethod", "PaymentMethod")
+                        .WithMany()
+                        .HasForeignKey("PaymentMethodId");
 
                     b.HasOne("TriplePrime.Data.Entities.ApplicationUser", "User")
                         .WithMany()
@@ -1308,6 +1484,8 @@ namespace TriplePrime.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("FoodPack");
+
+                    b.Navigation("PaymentMethod");
 
                     b.Navigation("User");
                 });
@@ -1334,9 +1512,6 @@ namespace TriplePrime.Data.Migrations
             modelBuilder.Entity("TriplePrime.Data.Entities.FoodPack", b =>
                 {
                     b.Navigation("Items");
-
-                    b.Navigation("SavingsPlan")
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("TriplePrime.Data.Entities.Marketer", b =>
@@ -1353,7 +1528,7 @@ namespace TriplePrime.Data.Migrations
 
             modelBuilder.Entity("TriplePrime.Data.Entities.SavingsPlan", b =>
                 {
-                    b.Navigation("Payments");
+                    b.Navigation("PaymentSchedules");
                 });
 #pragma warning restore 612, 618
         }

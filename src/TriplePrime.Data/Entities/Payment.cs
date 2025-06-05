@@ -22,6 +22,7 @@ namespace TriplePrime.Data.Entities
         public decimal Amount { get; set; }
         public PaymentStatus Status { get; set; }
         public string TransactionId { get; set; }
+        public string CallbackUrl { get; set; }
         public string Description { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }

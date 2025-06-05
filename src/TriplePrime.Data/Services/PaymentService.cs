@@ -5,16 +5,34 @@ using System.Threading.Tasks;
 using TriplePrime.Data.Entities;
 using TriplePrime.Data.Interfaces;
 using TriplePrime.Data.Repositories;
+using System.Text.Json;
+using TriplePrime.Data.Specifications;
+using System.Net.Http;
+using System.Text;
+using Microsoft.Extensions.Configuration;
+using TriplePrime.Data.Models;
 
 namespace TriplePrime.Data.Services
 {
-    public class PaymentService
+    public interface IPaymentService
+    {
+        Task<PaystackInitializeData> InitializePaystackPaymentAsync(PaystackInitializeRequest request, string userId);
+        Task<PaystackVerifyData> VerifyPaystackPaymentAsync(string reference, string userId);
+    }
+
+    public class PaymentService : IPaymentService
     {
         private readonly IUnitOfWork _unitOfWork;
+        private readonly HttpClient _httpClient;
+        private readonly string _paystackSecretKey;
+        private readonly string _paystackBaseUrl = "https://api.paystack.co";
 
-        public PaymentService(IUnitOfWork unitOfWork)
+        public PaymentService(IUnitOfWork unitOfWork, IConfiguration configuration, HttpClient httpClient)
         {
             _unitOfWork = unitOfWork;
+            _httpClient = httpClient;
+            _paystackSecretKey = configuration["Paystack:SecretKey"];
+            _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_paystackSecretKey}");
         }
 
         public async Task<Payment> CreatePaymentAsync(Payment payment)
@@ -107,29 +125,223 @@ namespace TriplePrime.Data.Services
 
         public async Task<Payment> ProcessPaymentAsync(Payment payment)
         {
-            // Here you would integrate with your payment gateway
-            // This is a placeholder for the actual payment processing logic
+            await _unitOfWork.BeginTransactionAsync();
             try
             {
-                payment.Status = PaymentStatus.Completed;
-                payment.TransactionId = Guid.NewGuid().ToString();
+                // Initialize Paystack payment
+                var paystackResponse = await InitializePaystackPayment(payment);
+                if (!paystackResponse.success)
+                {
+                    throw new Exception($"Paystack payment initialization failed: {paystackResponse.message}");
+                }
+
+                payment.Status = PaymentStatus.Pending;
+                payment.TransactionId = paystackResponse.data.reference;
                 payment.UpdatedAt = DateTime.UtcNow;
 
                 _unitOfWork.Repository<Payment>().Update(payment);
                 await _unitOfWork.SaveChangesAsync();
+                await _unitOfWork.CommitTransactionAsync();
 
                 return payment;
             }
             catch
             {
-                payment.Status = PaymentStatus.Failed;
-                payment.UpdatedAt = DateTime.UtcNow;
-
-                _unitOfWork.Repository<Payment>().Update(payment);
-                await _unitOfWork.SaveChangesAsync();
-
+                await _unitOfWork.RollbackTransactionAsync();
                 throw;
             }
+        }
+
+        public async Task<Payment> InitializeSubscriptionAsync(string authCode, string email, decimal amount)
+        {
+            // Initialize Paystack subscription
+            var subscriptionResponse = await InitializePaystackSubscription(authCode, email, amount);
+            if (!subscriptionResponse.success)
+            {
+                throw new Exception($"Paystack subscription initialization failed: {subscriptionResponse.message}");
+            }
+
+            var payment = new Payment
+            {
+                Amount = amount,
+                Status = PaymentStatus.Pending,
+                TransactionId = subscriptionResponse.data.reference,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _unitOfWork.Repository<Payment>().AddAsync(payment);
+            await _unitOfWork.SaveChangesAsync();
+
+            return payment;
+        }
+
+        public async Task<string> CreatePaystackPlan(decimal amount, string interval = "monthly", string name = null)
+        {
+            var planName = name ?? $"TriplePrime Savings Plan - ₦{amount}";
+            var request = new
+            {
+                name = planName,
+                interval = interval,
+                amount = (int)(amount * 100), // Convert to kobo
+                currency = "NGN"
+            };
+
+            var response = await _httpClient.PostAsync(
+                $"{_paystackBaseUrl}/plan",
+                new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json")
+            );
+
+            var content = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<PaystackResponse>(content);
+            
+            if (!result.success)
+            {
+                throw new Exception($"Failed to create Paystack plan: {result.message}");
+            }
+
+            return result.data.plan_code;
+        }
+
+        public async Task<PaystackSubscriptionResponse> CreateSubscription(string customerEmail, string planCode, string authorizationCode, DateTime? startDate = null)
+        {
+            var request = new
+            {
+                customer = customerEmail,
+                plan = planCode,
+                authorization = authorizationCode,
+                start_date = (startDate ?? DateTime.UtcNow.AddMonths(1)).ToString("yyyy-MM-dd")
+            };
+
+            var response = await _httpClient.PostAsync(
+                $"{_paystackBaseUrl}/subscription",
+                new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json")
+            );
+
+            var content = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<PaystackSubscriptionResponse>(content);
+            
+            if (!result.status)
+            {
+                throw new Exception($"Failed to create subscription: {result.message}");
+            }
+
+            return result;
+        }
+
+        private async Task<PaystackResponse> InitializePaystackPayment(Payment payment)
+        {
+            var request = new
+            {
+                amount = (int)(payment.Amount * 100), // Convert to kobo
+                email = payment.User.Email,
+                currency = "NGN",
+                callback_url = $"{payment.CallbackUrl}?paymentId={payment.Id}",
+                reference = payment.TransactionId
+            };
+
+            var response = await _httpClient.PostAsync(
+                $"{_paystackBaseUrl}/transaction/initialize",
+                new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json")
+            );
+
+            var content = await response.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<PaystackResponse>(content);
+        }
+
+        private async Task<PaystackResponse> InitializePaystackSubscription(string authCode, string email, decimal amount)
+        {
+            // First, create a plan for this amount if it doesn't exist
+            var planCode = await CreatePaystackPlan(amount);
+            
+            var request = new
+            {
+                customer = email,
+                plan = planCode,
+                authorization = authCode,
+                start_date = DateTime.UtcNow.AddMonths(1).ToString("yyyy-MM-dd") // Start next month
+            };
+
+            var response = await _httpClient.PostAsync(
+                $"{_paystackBaseUrl}/subscription",
+                new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json")
+            );
+
+            var content = await response.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<PaystackResponse>(content);
+        }
+
+        public bool VerifyPaystackWebhook(string signature, string payload)
+        {
+            if (string.IsNullOrEmpty(signature) || string.IsNullOrEmpty(payload))
+                return false;
+
+            var computedHash = ComputeHmacSha512(payload, _paystackSecretKey);
+            return signature.Equals(computedHash, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private string ComputeHmacSha512(string payload, string secretKey)
+        {
+            using var hmac = new System.Security.Cryptography.HMACSHA512(Encoding.UTF8.GetBytes(secretKey));
+            var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(payload));
+            return BitConverter.ToString(hash).Replace("-", "").ToLower();
+        }
+
+        //private async Task HandleSuccessfulPayment(WebhookData data)
+        //{
+        //    // Check if this is a subscription payment
+        //    if (!string.IsNullOrEmpty(data.SubscriptionCode))
+        //    {
+        //        await HandleSubscriptionPayment(data);
+        //        return;
+        //    }
+
+        //    var payment = await GetPaymentByReferenceAsync(data.Reference);
+        //    if (payment != null)
+        //    {
+        //        payment.Status = PaymentStatus.Completed;
+        //        payment.UpdatedAt = DateTime.UtcNow;
+        //        _unitOfWork.Repository<Payment>().Update(payment);
+        //        await _unitOfWork.SaveChangesAsync();
+        //    }
+        //}
+
+        //private async Task HandleSubscriptionPayment(WebhookData data)
+        //{
+        //    // Find the savings plan associated with this subscription
+        //    var savingsPlanService = new SavingsPlanService(_unitOfWork, this);
+        //    var plan = await savingsPlanService.GetSavingsPlanBySubscriptionCodeAsync(data.SubscriptionCode);
+            
+        //    if (plan != null)
+        //    {
+        //        // Process the payment for the next due schedule
+        //        await savingsPlanService.ProcessPaymentAsync(plan.Id, data.Amount / 100, data.Reference);
+        //    }
+        //}
+
+        //private async Task HandleSubscriptionCreated(WebhookData data)
+        //{
+        //    // Update the savings plan with subscription details
+        //    var savingsPlanService = new SavingsPlanService(_unitOfWork, this);
+        //    await savingsPlanService.UpdateSubscriptionDetailsAsync(data.Customer, data.SubscriptionCode);
+        //}
+
+        //private async Task HandleSubscriptionDisabled(WebhookData data)
+        //{
+        //    // Update the savings plan status
+        //    var savingsPlanService = new SavingsPlanService(_unitOfWork, this);
+        //    var plan = await savingsPlanService.GetSavingsPlanBySubscriptionCodeAsync(data.SubscriptionCode);
+            
+        //    if (plan != null)
+        //    {
+        //        await savingsPlanService.UpdateSavingsPlanStatusAsync(plan.Id, "Cancelled");
+        //    }
+        //}
+
+        private async Task<Payment> GetPaymentByReferenceAsync(string reference)
+        {
+            var spec = new PaymentSpecification();
+            spec.ApplyReferenceFilter(reference);
+            return await _unitOfWork.Repository<Payment>().GetEntityWithSpec(spec);
         }
 
         public async Task<Payment> RefundPaymentAsync(int paymentId, decimal amount)
@@ -179,5 +391,173 @@ namespace TriplePrime.Data.Services
             spec.ApplyFoodPackFilter(foodPackId);
             return await _unitOfWork.Repository<Payment>().ListAsync(spec);
         }
+
+        //public async Task HandlePaystackWebhookAsync(string payload)
+        //{
+        //    var webhookData = JsonSerializer.Deserialize<PaystackWebhookData>(payload);
+            
+        //    switch (webhookData.Event)
+        //    {
+        //        case "charge.success":
+        //            await HandleSuccessfulPayment(webhookData.Data);
+        //            break;
+        //        case "subscription.create":
+        //            await HandleSubscriptionCreated(webhookData.Data);
+        //            break;
+        //        case "subscription.disable":
+        //            await HandleSubscriptionDisabled(webhookData.Data);
+        //            break;
+        //    }
+        //}
+
+        public async Task<int> CreatePaymentMethodAsync(PaymentMethod paymentMethod)
+        {
+            await _unitOfWork.BeginTransactionAsync();
+            try
+            {
+                // Set any existing payment methods as non-default
+                if (paymentMethod.IsDefault)
+                {
+                    var spec = new PaymentMethodSpecification();
+                    spec.ApplyUserFilter(paymentMethod.UserId);
+                    var existingMethods = await _unitOfWork.Repository<PaymentMethod>().ListAsync(spec);
+                    
+                    foreach (var method in existingMethods)
+                    {
+                        method.IsDefault = false;
+                        method.UpdatedAt = DateTime.UtcNow;
+                        method.UpdatedBy = paymentMethod.CreatedBy;
+                        _unitOfWork.Repository<PaymentMethod>().Update(method);
+                    }
+                }
+
+                await _unitOfWork.Repository<PaymentMethod>().AddAsync(paymentMethod);
+                await _unitOfWork.SaveChangesAsync();
+                await _unitOfWork.CommitTransactionAsync();
+
+                return paymentMethod.Id;
+            }
+            catch
+            {
+                await _unitOfWork.RollbackTransactionAsync();
+                throw;
+            }
+        }
+
+        public async Task<PaystackInitializeData> InitializePaystackPaymentAsync(PaystackInitializeRequest request, string userId)
+        {
+            try
+            {
+                var payload = JsonSerializer.Serialize(new
+                {
+                    email = request.Email,
+                    amount = request.Amount * 100, // Convert to kobo
+                    reference = request.Reference ?? Guid.NewGuid().ToString(),
+                    callback_url = request.CallbackUrl,
+                    channels = request.Channels,
+                    metadata = request.Metadata
+                });
+
+                var content = new StringContent(payload, Encoding.UTF8, "application/json");
+                var response = await _httpClient.PostAsync($"{_paystackBaseUrl}/transaction/initialize", content);
+                
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    throw new Exception($"Failed to initialize payment: {errorContent}");
+                }
+
+                var responseContent = await response.Content.ReadAsStringAsync();
+                var result = JsonSerializer.Deserialize<PaystackInitializeResponse>(responseContent);
+
+                if (!result.Status)
+                {
+                    throw new Exception(result.Message);
+                }
+
+                return result.Data;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error initializing Paystack payment: {ex.Message}", ex);
+            }
+        }
+
+        public async Task<PaystackVerifyData> VerifyPaystackPaymentAsync(string reference, string userId)
+        {
+            try
+            {
+                var response = await _httpClient.GetAsync($"{_paystackBaseUrl}/transaction/verify/{reference}");
+                
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    throw new Exception($"Failed to verify payment: {errorContent}");
+                }
+
+                var responseContent = await response.Content.ReadAsStringAsync();
+                var result = JsonSerializer.Deserialize<PaystackVerifyResponse>(responseContent);
+
+                if (!result.Status)
+                {
+                    throw new Exception(result.Message);
+                }
+
+                return result.Data;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error verifying Paystack payment: {ex.Message}", ex);
+            }
+        }
+    }
+
+    public class PaystackResponse
+    {
+        public bool success { get; set; }
+        public string message { get; set; }
+        public PaystackData data { get; set; }
+    }
+
+    public class PaystackData
+    {
+        public string reference { get; set; }
+        public string authorization_url { get; set; }
+        public string access_code { get; set; }
+        public string plan_code { get; set; }
+        public string subscription_code { get; set; }
+    }
+
+    public class PaystackSubscriptionResponse
+    {
+        public bool status { get; set; }
+        public string message { get; set; }
+        public SubscriptionData data { get; set; }
+    }
+
+    public class SubscriptionData
+    {
+        public string subscription_code { get; set; }
+        public string email_token { get; set; }
+        public int id { get; set; }
+    }
+
+    public class PaystackWebhookData
+    {
+        public string Event { get; set; }
+        public WebhookData Data { get; set; }
+    }
+
+    public class WebhookData
+    {
+        public string Reference { get; set; }
+        public string Status { get; set; }
+        public decimal Amount { get; set; }
+        public string Channel { get; set; }
+        public string Currency { get; set; }
+        public string Customer { get; set; }
+        public string Authorization { get; set; }
+        public string SubscriptionCode { get; set; }
+        public string PlanCode { get; set; }
     }
 } 

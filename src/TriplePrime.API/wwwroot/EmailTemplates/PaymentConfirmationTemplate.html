@@ -1,0 +1,158 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Payment Confirmation - TriplePrime</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            padding: 20px 0;
+            border-bottom: 2px solid #f97316;
+        }
+
+        .logo {
+            max-width: 150px;
+            height: auto;
+        }
+
+        .content {
+            padding: 20px 0;
+        }
+
+        .payment-details {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .schedule {
+            margin: 20px 0;
+        }
+
+        .schedule-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+            .schedule-table th,
+            .schedule-table td {
+                padding: 10px;
+                border: 1px solid #ddd;
+                text-align: left;
+            }
+
+            .schedule-table th {
+                background-color: #f97316;
+                color: white;
+            }
+
+            .schedule-table tr:nth-child(even) {
+                background-color: #f8f9fa;
+            }
+
+        .footer {
+            text-align: center;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .highlight {
+            color: #f97316;
+            font-weight: bold;
+        }
+
+        .button {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #f97316;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <img src="{{LogoUrl}}" alt="TriplePrime Logo" class="logo" />
+        <h1>Payment Confirmation</h1>
+    </div>
+
+    <div class="content">
+        <p>Dear {{CustomerName}},</p>
+
+        <p>Thank you for your payment! We're excited to confirm that we've received your payment for your food savings plan.</p>
+
+        <div class="payment-details">
+            <h2>Payment Details</h2>
+            <p><strong>Amount Paid:</strong> ₦{{AmountPaid}}</p>
+            <p><strong>Payment Date:</strong> {{PaymentDate}}</p>
+            <p><strong>Payment Reference:</strong> {{PaymentReference}}</p>
+            <p><strong>Payment Status:</strong> <span class="highlight">Successful</span></p>
+        </div>
+
+        <div class="food-pack-details">
+            <h2>Food Pack Details</h2>
+            <p><strong>Pack Name:</strong> {{FoodPackName}}</p>
+            <p><strong>Total Amount:</strong> ₦{{TotalAmount}}</p>
+            <p><strong>Duration:</strong> {{Duration}} months</p>
+            <p><strong>Payment Frequency:</strong> {{PaymentFrequency}}</p>
+            <p><strong>Amount per {{PaymentFrequency}}:</strong> ₦{{AmountPerPayment}}</p>
+        </div>
+
+        <div class="schedule">
+            <h2>Your Payment Schedule</h2>
+            <p>Here's your upcoming payment schedule:</p>
+            <table class="schedule-table">
+                <thead>
+                    <tr>
+                        <th>Due Date</th>
+                        <th>Amount</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{#each PaymentSchedules}}
+                    <tr>
+                        <td>{{DueDate}}</td>
+                        <td>₦{{Amount}}</td>
+                        <td>{{Status}}</td>
+                    </tr>
+                    {{/each}}
+                </tbody>
+            </table>
+        </div>
+
+        <p>Your next payment of ₦{{NextPaymentAmount}} is due on {{NextPaymentDate}}.</p>
+
+        {{#if IsAutomaticPayment}}
+        <p>Since you've chosen automatic payments, we'll automatically charge your card on the scheduled dates. No action is required from you.</p>
+        {{else}}
+        <p>You've chosen manual payments. We'll send you reminders before each due date to help you stay on track.</p>
+        {{/if}}
+
+        <p>You can view your complete savings plan and payment history by clicking the button below:</p>
+
+        <a href="{{DashboardUrl}}" class="button">View Your Savings Plan</a>
+    </div>
+
+    <div class="footer">
+        <p>If you have any questions or concerns, please don't hesitate to contact our support team.</p>
+        <p>Email: support@tripleprime.com | Phone: +234 800 123 4567</p>
+        <p>&copy; {{CurrentYear}} TriplePrime. All rights reserved.</p>
+    </div>
+</body>
+</html>

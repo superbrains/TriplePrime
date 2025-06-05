@@ -18,19 +18,20 @@ namespace TriplePrime.Data.Entities
         public string Name { get; set; }
         public string Description { get; set; }
         public decimal Price { get; set; }
-        public string Category { get; set; }
-        public FoodPackStatus Status { get; set; }
-        public decimal Rating { get; set; }
-        public int PopularityScore { get; set; }
+        public decimal OriginalPrice { get; set; }
+        public decimal Savings { get; set; }
+        public bool Available { get; set; }
+        public bool Featured { get; set; }
         public string ImageUrl { get; set; }
+        public int Inventory { get; set; }
+        public int Duration { get; set; }
+        public string Category { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
-        public DateTime? DeliveryDate { get; set; }
+        public string CreatedBy { get; set; }
+        public string UpdatedBy { get; set; } = "Admin";
 
         // Navigation Properties
         public virtual ICollection<FoodPackItem> Items { get; set; } = new List<FoodPackItem>();
-        public virtual SavingsPlan SavingsPlan { get; set; }
-        public string UserId { get; set; }
-        public virtual ApplicationUser User { get; set; }
     }
 } 

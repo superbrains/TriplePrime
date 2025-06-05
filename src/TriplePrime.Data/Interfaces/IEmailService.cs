@@ -11,5 +11,7 @@ namespace TriplePrime.Data.Interfaces
         Task<bool> ValidateEmailAsync(string email);
         Task<bool> UpdateEmailSettingsAsync(EmailSettings settings);
         Task<EmailSettings> GetEmailSettingsAsync();
+        Task<string> GetEmailTemplateAsync(string templateName);
+        Task SendTemplatedEmailAsync(string to, string subject, string templateName, object model);
     }
 } 
