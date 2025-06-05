@@ -38,6 +38,7 @@ namespace TriplePrime.Data.Entities
         public ICollection<Report> Reports { get; set; }
         public ICollection<Delivery> Deliveries { get; set; }
         public ICollection<IdentityUserRole<string>> UserRoles { get; set; }
+        public ICollection<SavingsPlan> SavingsPlans { get; set; }
     }
 
     public class NotificationPreferences

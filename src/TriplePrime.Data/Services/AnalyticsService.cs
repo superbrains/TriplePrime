@@ -8,10 +8,11 @@ using TriplePrime.Data.Models;
 using TriplePrime.Data.Repositories;
 using Microsoft.AspNetCore.Identity;
 using TriplePrime.Data.Specifications;
+using Microsoft.Extensions.Logging;
 
 namespace TriplePrime.Data.Services
 {
-    public class AnalyticsService
+    public class AnalyticsService : IAnalyticsService
     {
         private readonly IGenericRepository<FoodPack> _foodPackRepository;
         private readonly IGenericRepository<Payment> _paymentRepository;
@@ -299,7 +300,7 @@ namespace TriplePrime.Data.Services
             {
                 var marketers = await _marketerRepository.ListAsync(new MarketerSpecification());
                 var foodPacks = await _foodPackRepository.ListAsync(new FoodPackSpecification());
-                var payments = await _paymentRepository.ListAsync(new PaymentSpecification());
+                var savingsPlans = await _unitOfWork.Repository<SavingsPlan>().ListAsync(new SavingsPlanSpecification());
                 var foodPackPurchases = await _foodPackPurchaseRepository.ListAsync(new FoodPackPurchaseSpecification());
 
                 // Get users with their roles
@@ -310,9 +311,7 @@ namespace TriplePrime.Data.Services
                     !u.UserRoles.Any(ur => ur.RoleId == "Marketer" || ur.RoleId == "Admin"));
                 var activeMarketers = marketers.Count(m => m.IsActive);
                 var totalFoodPacks = foodPacks.Count();
-                var totalRevenue = payments
-                    .Where(p => p.Status == PaymentStatus.Completed)
-                    .Sum(p => p.Amount);
+                var totalRevenue = savingsPlans.Sum(sp => sp.AmountPaid);
 
                 return new DashboardMetrics
                 {
@@ -327,6 +326,52 @@ namespace TriplePrime.Data.Services
                 // Log the error here if you have a logging service
                 throw new Exception("Failed to retrieve dashboard metrics", ex);
             }
+        }
+
+        // Stub implementations for missing interface methods
+        public Task<Dictionary<string, decimal>> GetRevenueByPeriodAsync(DateTime startDate, DateTime endDate, string period)
+        {
+            return Task.FromResult(new Dictionary<string, decimal>());
+        }
+
+        public Task<Dictionary<string, int>> GetUserRegistrationsByPeriodAsync(DateTime startDate, DateTime endDate, string period)
+        {
+            return Task.FromResult(new Dictionary<string, int>());
+        }
+
+        public Task<Dictionary<string, int>> GetActiveUsersByPeriodAsync(DateTime startDate, DateTime endDate, string period)
+        {
+            return Task.FromResult(new Dictionary<string, int>());
+        }
+
+        public Task<Dictionary<string, decimal>> GetAverageOrderValueByPeriodAsync(DateTime startDate, DateTime endDate, string period)
+        {
+            return Task.FromResult(new Dictionary<string, decimal>());
+        }
+
+        public Task<Dictionary<string, int>> GetOrdersByStatusAsync(DateTime startDate, DateTime endDate)
+        {
+            return Task.FromResult(new Dictionary<string, int>());
+        }
+
+        public Task<Dictionary<string, decimal>> GetCommissionsByMarketerAsync(DateTime startDate, DateTime endDate)
+        {
+            return Task.FromResult(new Dictionary<string, decimal>());
+        }
+
+        public Task<Dictionary<string, int>> GetReferralsByMarketerAsync(DateTime startDate, DateTime endDate)
+        {
+            return Task.FromResult(new Dictionary<string, int>());
+        }
+
+        public Task<Dictionary<string, decimal>> GetPaymentMethodBreakdownAsync(DateTime startDate, DateTime endDate)
+        {
+            return Task.FromResult(new Dictionary<string, decimal>());
+        }
+
+        public Task<Dictionary<string, int>> GetDeliveryStatusBreakdownAsync(DateTime startDate, DateTime endDate)
+        {
+            return Task.FromResult(new Dictionary<string, int>());
         }
     }
 } 

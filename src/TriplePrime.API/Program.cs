@@ -113,12 +113,10 @@ builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddSingleton<PaymentEmailService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<PaymentEmailService>());
 
-builder.Services.AddScoped<ISmsService, SmsService>();
-builder.Services.AddScoped<NotificationService>();
 builder.Services.AddScoped<PaymentService>();
 builder.Services.AddScoped<SavingsPlanService>();
 builder.Services.AddScoped<MarketerService>();
-builder.Services.AddScoped<ReferralService>();
+//builder.Services.AddScoped<ReferralService>();
 builder.Services.AddScoped<ReportService>();
 builder.Services.AddScoped<LoggingService>();
 builder.Services.AddScoped<ConfigurationService>();
@@ -134,6 +132,9 @@ builder.Services.AddScoped<IPaymentMethodService, PaymentMethodService>();
 
 // Add HttpClient
 builder.Services.AddHttpClient();
+
+// Add background services
+builder.Services.AddHostedService<PaymentReminderService>();
 
 var app = builder.Build();
 

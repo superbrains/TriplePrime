@@ -10,15 +10,15 @@ using TriplePrime.Data.Repositories;
 
 namespace TriplePrime.Data.Services
 {
-    public class ConfigurationService
+    public class ConfigurationService : IConfigurationService
     {
-        private readonly IGenericRepository<Configuration> _configRepository;
+        private readonly IGenericRepository<TriplePrime.Data.Entities.Configuration> _configRepository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IConfiguration _configuration;
         private readonly ILogger<ConfigurationService> _logger;
 
         public ConfigurationService(
-            IGenericRepository<Configuration> configRepository,
+            IGenericRepository<TriplePrime.Data.Entities.Configuration> configRepository,
             IUnitOfWork unitOfWork,
             IConfiguration configuration,
             ILogger<ConfigurationService> logger)
@@ -29,7 +29,7 @@ namespace TriplePrime.Data.Services
             _logger = logger;
         }
 
-        public async Task<Configuration> CreateConfigurationAsync(Configuration config)
+        public async Task<TriplePrime.Data.Entities.Configuration> CreateConfigurationAsync(TriplePrime.Data.Entities.Configuration config)
         {
             config.CreatedAt = DateTime.UtcNow;
             await _configRepository.AddAsync(config);
@@ -39,13 +39,13 @@ namespace TriplePrime.Data.Services
             return config;
         }
 
-        public async Task<Configuration> GetConfigurationByIdAsync(int id)
+        public async Task<TriplePrime.Data.Entities.Configuration> GetConfigurationByIdAsync(int id)
         {
             var spec = new ConfigurationSpecification(id);
             return await _configRepository.GetEntityWithSpec(spec);
         }
 
-        public async Task<Configuration> GetConfigurationByKeyAsync(string key, string environment = null)
+        public async Task<TriplePrime.Data.Entities.Configuration> GetConfigurationByKeyAsync(string key, string environment = null)
         {
             var spec = string.IsNullOrEmpty(environment)
                 ? new ConfigurationSpecification(key)
@@ -58,7 +58,7 @@ namespace TriplePrime.Data.Services
             var appSettingValue = _configuration[key];
             if (string.IsNullOrEmpty(appSettingValue)) return null;
 
-            return new Configuration
+            return new TriplePrime.Data.Entities.Configuration
             {
                 Key = key,
                 Value = appSettingValue,
@@ -68,14 +68,19 @@ namespace TriplePrime.Data.Services
             };
         }
 
-        public async Task<IReadOnlyList<Configuration>> GetConfigurationsByTypeAsync(ConfigurationType type)
+        public async Task<TriplePrime.Data.Entities.Configuration> GetConfigurationByKeyAsync(string key)
+        {
+            return await GetConfigurationByKeyAsync(key, null);
+        }
+
+        public async Task<IReadOnlyList<TriplePrime.Data.Entities.Configuration>> GetConfigurationsByTypeAsync(ConfigurationType type)
         {
             var spec = new ConfigurationSpecification(type);
             spec.ApplyOrderByKey();
             return (await _configRepository.ListAsync(spec)).ToList();
         }
 
-        public async Task<IReadOnlyList<Configuration>> GetConfigurationsByGroupAsync(string group)
+        public async Task<IReadOnlyList<TriplePrime.Data.Entities.Configuration>> GetConfigurationsByGroupAsync(string group)
         {
             var spec = new ConfigurationSpecification();
             spec.ApplyGroupFilter(group);
@@ -83,7 +88,7 @@ namespace TriplePrime.Data.Services
             return (await _configRepository.ListAsync(spec)).ToList();
         }
 
-        public async Task<IReadOnlyList<Configuration>> GetConfigurationsByEnvironmentAsync(string environment)
+        public async Task<IReadOnlyList<TriplePrime.Data.Entities.Configuration>> GetConfigurationsByEnvironmentAsync(string environment)
         {
             var spec = new ConfigurationSpecification();
             spec.ApplyEnvironmentFilter(environment);
@@ -91,7 +96,7 @@ namespace TriplePrime.Data.Services
             return (await _configRepository.ListAsync(spec)).ToList();
         }
 
-        public async Task<Configuration> UpdateConfigurationAsync(Configuration config)
+        public async Task<TriplePrime.Data.Entities.Configuration> UpdateConfigurationAsync(TriplePrime.Data.Entities.Configuration config)
         {
             var existingConfig = await GetConfigurationByIdAsync(config.Id);
             if (existingConfig == null) return null;
@@ -144,7 +149,7 @@ namespace TriplePrime.Data.Services
             return true;
         }
 
-        public async Task<IReadOnlyList<Configuration>> SearchConfigurationsAsync(string searchTerm)
+        public async Task<IReadOnlyList<TriplePrime.Data.Entities.Configuration>> SearchConfigurationsAsync(string searchTerm)
         {
             var spec = new ConfigurationSpecification();
             spec.ApplySearchFilter(searchTerm);
@@ -152,7 +157,7 @@ namespace TriplePrime.Data.Services
             return (await _configRepository.ListAsync(spec)).ToList();
         }
 
-        public async Task<IReadOnlyList<Configuration>> GetActiveConfigurationsAsync()
+        public async Task<IReadOnlyList<TriplePrime.Data.Entities.Configuration>> GetActiveConfigurationsAsync()
         {
             var spec = new ConfigurationSpecification();
             spec.ApplyEnabledFilter(true);
@@ -178,7 +183,7 @@ namespace TriplePrime.Data.Services
             var config = await GetConfigurationByKeyAsync(key, environment);
             if (config == null)
             {
-                config = new Configuration
+                config = new TriplePrime.Data.Entities.Configuration
                 {
                     Key = key,
                     Value = value,
@@ -197,6 +202,72 @@ namespace TriplePrime.Data.Services
 
             _logger.LogInformation($"Configuration value set: {key}");
             return true;
+        }
+
+        public async Task<TriplePrime.Data.Entities.Configuration> SetConfigurationAsync(string key, string value, string description = null)
+        {
+            var config = await GetConfigurationByKeyAsync(key);
+            if (config == null)
+            {
+                config = new TriplePrime.Data.Entities.Configuration
+                {
+                    Key = key,
+                    Value = value,
+                    Description = description,
+                    Type = ConfigurationType.Application,
+                    Environment = "Default",
+                    IsEnabled = true
+                };
+                await CreateConfigurationAsync(config);
+            }
+            else
+            {
+                config.Value = value;
+                if (description != null)
+                    config.Description = description;
+                config.UpdatedAt = DateTime.UtcNow;
+                await UpdateConfigurationAsync(config);
+            }
+
+            return config;
+        }
+
+        public async Task<bool> DeleteConfigurationAsync(string key)
+        {
+            var config = await GetConfigurationByKeyAsync(key);
+            if (config == null) return false;
+
+            _configRepository.Remove(config);
+            await _unitOfWork.SaveChangesAsync();
+
+            _logger.LogInformation($"Configuration deleted: {config.Key}");
+            return true;
+        }
+
+        public async Task<bool> ValidateConfigurationAsync(string key, string value)
+        {
+            var config = await GetConfigurationByKeyAsync(key);
+            if (config == null) return false;
+
+            // Add any specific validation logic here
+            return !string.IsNullOrEmpty(value);
+        }
+
+        public async Task<string> GetConfigurationValueAsync(string key)
+        {
+            var config = await GetConfigurationByKeyAsync(key);
+            return config?.Value;
+        }
+
+        public async Task<Dictionary<string, string>> GetAllConfigurationsAsync()
+        {
+            var spec = new ConfigurationSpecification();
+            spec.ApplyEnabledFilter(true);
+            spec.ApplyValidityFilter(DateTime.UtcNow);
+            spec.ApplyOrderByKey();
+
+            var configs = await _configRepository.ListAsync(spec);
+            return configs.ToDictionary(c => c.Key, c => c.Value);
         }
     }
 } 

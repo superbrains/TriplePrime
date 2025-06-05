@@ -8,6 +8,9 @@ using TriplePrime.Data.Models;
 using TriplePrime.Data.Services;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Logging;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
+using System.ComponentModel.DataAnnotations;
 
 namespace TriplePrime.API.Controllers
 {
@@ -16,11 +19,13 @@ namespace TriplePrime.API.Controllers
     {
         private readonly AuthenticationService _authService;
         private readonly UserService _userService;
+        private readonly ILogger<AuthenticationController> _logger;
 
-        public AuthenticationController(AuthenticationService authService, UserService userService)
+        public AuthenticationController(AuthenticationService authService, UserService userService, ILogger<AuthenticationController> logger)
         {
             _authService = authService;
             _userService = userService;
+            _logger = logger;
         }
 
         [HttpPost("login")]
@@ -64,7 +69,7 @@ namespace TriplePrime.API.Controllers
                     password = GenerateRandomPassword();
                 }
 
-                var result = await _authService.RegisterAsync(user, password);
+                var result = await _authService.RegisterAsync(user, password, request.ReferralCode);
                 if (!result.Success)
                 {
                     return HandleResponse(ApiResponse.ErrorResponse(result.ErrorMessage));
@@ -126,12 +131,13 @@ namespace TriplePrime.API.Controllers
         {
             try
             {
-                var token = await _authService.GeneratePasswordResetTokenAsync(request.Email);
-                return HandleResponse(ApiResponse<string>.SuccessResponse(token));
+                var response = await _authService.ForgotPasswordAsync(request.Email);
+                return Ok(response);
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
-                return HandleException(ex);
+                _logger.LogError(ex, "Error in ForgotPassword for email: {Email}", request.Email);
+                return StatusCode(500, new { message = "An error occurred while processing your request." });
             }
         }
 
@@ -140,16 +146,13 @@ namespace TriplePrime.API.Controllers
         {
             try
             {
-                var result = await _authService.ResetPasswordAsync(request.Email, request.Token, request.NewPassword);
-                if (!result.Success)
-                {
-                    return HandleResponse(ApiResponse.ErrorResponse(result.ErrorMessage));
-                }
-                return HandleResponse(ApiResponse.SuccessResponse("Password reset successfully"));
+                var response = await _authService.ResetPasswordWithTokenAsync(request.Email, request.Token, request.NewPassword);
+                return Ok(response);
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
-                return HandleException(ex);
+                _logger.LogError(ex, "Error in ResetPassword for email: {Email}", request.Email);
+                return StatusCode(500, new { message = "An error occurred while resetting your password." });
             }
         }
 
@@ -274,17 +277,27 @@ namespace TriplePrime.API.Controllers
         public string LastName { get; set; }
         public string PhoneNumber { get; set; }
         public string Address { get; set; }
+        public string ReferralCode { get; set; }
     }
 
     public class ForgotPasswordRequest
     {
+        [Required]
+        [EmailAddress]
         public string Email { get; set; }
     }
 
     public class ResetPasswordRequest
     {
+        [Required]
+        [EmailAddress]
         public string Email { get; set; }
+
+        [Required]
         public string Token { get; set; }
+
+        [Required]
+        [MinLength(8)]
         public string NewPassword { get; set; }
     }
 

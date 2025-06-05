@@ -19,7 +19,7 @@ namespace TriplePrime.Data.Entities
         public int Id { get; set; }
 
         [Required]
-        public int MarketerId { get; set; }
+        public string MarketerId { get; set; }
 
         [Required]
         public string ReferredUserId { get; set; }
@@ -43,7 +43,6 @@ namespace TriplePrime.Data.Entities
         public DateTime? UpdatedAt { get; set; }
 
         // Navigation properties
-        [ForeignKey("MarketerId")]
         public virtual Marketer Marketer { get; set; }
 
         [ForeignKey("ReferredUserId")]

@@ -4,7 +4,7 @@ using TriplePrime.Data.Entities;
 using TriplePrime.Data.Interfaces;
 using TriplePrime.Data.Repositories;
 
-namespace TriplePrime.Data.Specifications
+namespace TriplePrime.Data.Interfaces
 {
     public class SavingsPlanSpecification : BaseSpecification<SavingsPlan>
     {
@@ -12,6 +12,8 @@ namespace TriplePrime.Data.Specifications
             : base()
         {
             AddInclude(x => x.PaymentSchedules);
+            AddInclude(x => x.User);
+            AddInclude(x => x.FoodPack);
             ApplyOrderByDescending(x => x.CreatedAt);
         }
 
@@ -19,6 +21,8 @@ namespace TriplePrime.Data.Specifications
             : base(p => p.Id == id)
         {
             AddInclude(x => x.PaymentSchedules);
+            AddInclude(x => x.User);
+            AddInclude(x => x.FoodPack);
         }
 
         public void ApplyUserFilter(string userId)

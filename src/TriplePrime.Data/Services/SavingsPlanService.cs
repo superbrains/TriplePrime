@@ -94,6 +94,44 @@ namespace TriplePrime.Data.Services
                 await _unitOfWork.Repository<SavingsPlan>().AddAsync(plan);
                 await _unitOfWork.SaveChangesAsync();
 
+                // Check for referral and create commission if applicable
+                var referral = await _unitOfWork.Repository<Referral>()
+                    .GetEntityWithSpec(new ReferralSpecification(plan.UserId, true, true));
+
+                if (referral != null)
+                {
+                    // Update referral status to Active if it's not already
+                    if (referral.Status != ReferralStatus.Active)
+                    {
+                        referral.Status = ReferralStatus.Active;
+                        referral.UpdatedAt = DateTime.UtcNow;
+                        _unitOfWork.Repository<Referral>().Update(referral);
+                    }
+
+                    var marketer = await _unitOfWork.Repository<Marketer>()
+                        .GetEntityWithSpec(new MarketerSpecification(referral.MarketerId));
+
+                    if (marketer != null && marketer.IsActive)
+                    {
+                        var commissionAmount = plan.AmountPaid * marketer.CommissionRate;
+                        
+                        var commission = new Commission
+                        {
+                            MarketerId = marketer.Id,
+                            ReferralId = referral.Id,
+                            Amount = commissionAmount,
+                            Rate = marketer.CommissionRate,
+                            Status = CommissionStatus.Pending,
+                            CreatedAt = DateTime.UtcNow,
+                            CreatedBy = "System",
+                            UpdatedBy = "System"
+                        };
+
+                        await _unitOfWork.Repository<Commission>().AddAsync(commission);
+                        await _unitOfWork.SaveChangesAsync();
+                    }
+                }
+
                 // Queue payment confirmation email
                 await QueuePaymentConfirmationEmail(plan, firstSchedule, paymentReference);
 
@@ -329,6 +367,83 @@ namespace TriplePrime.Data.Services
             spec.ApplyStatusFilter("Pending");
             spec.ApplyDateRangeFilter(DateTime.UtcNow, DateTime.UtcNow.AddMonths(1));
             return await _unitOfWork.Repository<PaymentSchedule>().ListAsync(spec);
+        }
+
+        public async Task<IEnumerable<SavingsPlanWithUserDetails>> GetAllSavingsPlansForAdminAsync(DateTime? startDate, DateTime? endDate, string status)
+        {
+            var spec = new SavingsPlanSpecification();
+            
+            if (startDate.HasValue && endDate.HasValue)
+            {
+                spec.ApplyDateRangeFilter(startDate.Value, endDate.Value);
+            }
+
+            if (!string.IsNullOrEmpty(status))
+            {
+                spec.ApplyStatusFilter(status);
+            }
+
+            var plans = await _unitOfWork.Repository<SavingsPlan>().ListAsync(spec);
+            
+            // Include user and food pack details
+            var plansWithDetails = plans.Select(plan => new SavingsPlanWithUserDetails
+            {
+                Id = plan.Id,
+                UserFullName = $"{plan.User.FirstName} {plan.User.LastName}",
+                UserPhoneNumber = plan.User.PhoneNumber,
+                EmailAddress =plan.User.Email,
+                UserAddress = plan.User.Address,
+                FoodPackName = plan.FoodPack.Name,
+                TotalAmount = plan.TotalAmount,
+                AmountPaid = plan.AmountPaid,
+                Status = plan.Status,
+                StartDate = plan.StartDate,
+                LastPaymentDate = plan.LastPaymentDate,
+                PaymentFrequency = plan.PaymentFrequency,
+                PaymentSchedules = plan.PaymentSchedules
+                    .OrderBy(s => s.DueDate)
+                    .Select(s => new PaymentScheduleDto
+                    {
+                        Id = s.Id,
+                        DueDate = s.DueDate,
+                        Amount = s.Amount,
+                        Status = s.Status,
+                        PaidAt = s.PaidAt
+                    }).ToList()
+            });
+
+            return plansWithDetails;
+        }
+
+        public async Task<SavingsPlanWithUserDetails> GetSavingsPlanScheduleAsync(int id)
+        {
+            var plan = await GetSavingsPlanByIdAsync(id);
+            if (plan == null)
+                return null;
+
+            return new SavingsPlanWithUserDetails
+            {
+                Id = plan.Id,
+                UserFullName = $"{plan.User.FirstName} {plan.User.LastName}",
+                UserPhoneNumber = plan.User.PhoneNumber,
+                FoodPackName = plan.FoodPack.Name,
+                TotalAmount = plan.TotalAmount,
+                AmountPaid = plan.AmountPaid,
+                Status = plan.Status,
+                StartDate = plan.StartDate,
+                LastPaymentDate = plan.LastPaymentDate,
+                PaymentFrequency = plan.PaymentFrequency,
+                PaymentSchedules = plan.PaymentSchedules
+                    .OrderBy(s => s.DueDate)
+                    .Select(s => new PaymentScheduleDto
+                    {
+                        Id = s.Id,
+                        DueDate = s.DueDate,
+                        Amount = s.Amount,
+                        Status = s.Status,
+                        PaidAt = s.PaidAt
+                    }).ToList()
+            };
         }
 
         public async Task ProcessAutomaticPayments()

@@ -1,13 +1,15 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.Linq;
+using Microsoft.Extensions.Logging;
 using TriplePrime.Data.Entities;
 using TriplePrime.Data.Interfaces;
 using TriplePrime.Data.Repositories;
 
 namespace TriplePrime.Data.Services
 {
-    public class DeliveryService
+    public class DeliveryService : IDeliveryService
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly IGenericRepository<Delivery> _deliveryRepository;
@@ -60,12 +62,13 @@ namespace TriplePrime.Data.Services
             return await _deliveryRepository.ListAsync(specification);
         }
 
-        public async Task<IEnumerable<Delivery>> GetDeliveriesByDateRangeAsync(DateTime startDate, DateTime endDate)
+        public async Task<IReadOnlyList<Delivery>> GetDeliveriesByDateRangeAsync(DateTime startDate, DateTime endDate)
         {
             var specification = new DeliverySpecification();
             specification.ApplyDateRangeFilter(startDate, endDate);
             specification.ApplyOrderByDeliveryDate();
-            return await _deliveryRepository.ListAsync(specification);
+            var deliveries = await _deliveryRepository.ListAsync(specification);
+            return deliveries.ToList();
         }
 
         public async Task<IEnumerable<Delivery>> GetDeliveriesByStatusAsync(DeliveryStatus status)
@@ -164,6 +167,42 @@ namespace TriplePrime.Data.Services
             specification.ApplyFoodPackFilter(foodPackId);
             specification.ApplyOrderByDeliveryDate(true);
             return await _deliveryRepository.ListAsync(specification);
+        }
+
+        public async Task<IReadOnlyList<Delivery>> GetDeliveriesByOrderIdAsync(int orderId)
+        {
+            // TODO: Implement actual logic
+            return new List<Delivery>();
+        }
+
+        public async Task<IReadOnlyList<Delivery>> GetDeliveriesByUserIdAsync(string userId)
+        {
+            // TODO: Implement actual logic
+            return new List<Delivery>();
+        }
+
+        public async Task<Delivery> UpdateDeliveryAsync(Delivery delivery)
+        {
+            // TODO: Implement actual logic
+            return delivery;
+        }
+
+        public async Task<bool> DeleteDeliveryAsync(int id)
+        {
+            // TODO: Implement actual logic
+            return true;
+        }
+
+        public async Task<bool> UpdateDeliveryStatusAsync(int id, string status)
+        {
+            // TODO: Implement actual logic
+            return true;
+        }
+
+        public async Task<IReadOnlyList<Delivery>> GetDeliveriesByStatusAsync(string status)
+        {
+            // TODO: Implement actual logic
+            return new List<Delivery>();
         }
     }
 } 

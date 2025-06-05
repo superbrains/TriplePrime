@@ -18,17 +18,20 @@ namespace TriplePrime.Data.Services
         private readonly IUnitOfWork _unitOfWork;
         private readonly AuthenticationService _authService;
         private readonly UserManager<ApplicationUser> _userManager;
+        private readonly IEmailService _emailService;
 
         public MarketerService(
             IGenericRepository<Marketer> marketerRepository, 
             IUnitOfWork unitOfWork,
             AuthenticationService authService,
-            UserManager<ApplicationUser> userManager)
+            UserManager<ApplicationUser> userManager,
+            IEmailService emailService)
         {
             _marketerRepository = marketerRepository;
             _unitOfWork = unitOfWork;
             _authService = authService;
             _userManager = userManager;
+            _emailService = emailService;
         }
 
         public async Task<MarketerDetails> CreateMarketerAsync(CreateMarketerRequest request)
@@ -86,11 +89,37 @@ namespace TriplePrime.Data.Services
 
                 await _marketerRepository.AddAsync(marketer);
                 await _unitOfWork.SaveChangesAsync();
+
+                // Send welcome email with credentials
+                try
+                {
+                    var emailModel = new
+                    {
+                        Name = $"{user.FirstName} {user.LastName}",
+                        Email = user.Email,
+                        Password = password,
+                        Role = "Marketer"
+                    };
+
+                    await _emailService.SendTemplatedEmailAsync(
+                        user.Email,
+                        "Welcome to TriplePrime - Your Marketer Account",
+                        "AdminWelcomeTemplate.html",
+                        emailModel
+                    );
+                }
+                catch (Exception ex)
+                {
+                    // Log the email error but don't fail the transaction
+                    // You might want to add proper logging here
+                    System.Diagnostics.Debug.WriteLine($"Failed to send welcome email: {ex.Message}");
+                }
+
                 await _unitOfWork.CommitTransactionAsync();
 
                 return new MarketerDetails
                 {
-                    Id = marketer.Id,
+                    Id = marketer.UserId,
                     UserId = marketer.UserId,
                     Name = $"{user.FirstName} {user.LastName}",
                     Email = user.Email,
@@ -122,9 +151,15 @@ namespace TriplePrime.Data.Services
                 var user = await _userManager.FindByIdAsync(marketer.UserId);
                 if (user != null)
                 {
+                    // Get referrals and commissions for each marketer
+                    var referrals = await _unitOfWork.Repository<Referral>()
+                        .ListAsync(new ReferralSpecification(marketer.UserId));
+                    var commissions = await _unitOfWork.Repository<Commission>()
+                        .ListAsync(new CommissionSpecification(marketer.Id));
+
                     marketerDetails.Add(new MarketerDetails
                     {
-                        Id = marketer.Id,
+                        Id = marketer.UserId,
                         UserId = marketer.UserId,
                         Name = $"{user.FirstName} {user.LastName}",
                         Email = user.Email,
@@ -132,9 +167,9 @@ namespace TriplePrime.Data.Services
                         CompanyName = marketer.CompanyName,
                         CommissionRate = marketer.CommissionRate,
                         Status = marketer.IsActive ? "active" : "inactive",
-                        TotalCustomers = marketer.TotalCustomers,
-                        TotalSales = marketer.TotalSales,
-                        TotalCommission = marketer.TotalCommissionEarned,
+                        TotalCustomers = referrals.Select(r => r.ReferredUserId).Distinct().Count(),
+                        TotalSales = referrals.Sum(r => r.CommissionAmount),
+                        TotalCommission = commissions.Sum(c => c.Amount),
                         RegistrationDate = marketer.CreatedAt
                     });
                 }
@@ -143,7 +178,7 @@ namespace TriplePrime.Data.Services
             return marketerDetails;
         }
 
-        public async Task<MarketerDetails> GetMarketerByIdAsync(int id)
+        public async Task<MarketerDetails> GetMarketerByIdAsync(string id)
         {
             var marketer = await _marketerRepository.GetEntityWithSpec(new MarketerSpecification(id));
             if (marketer == null) return null;
@@ -151,9 +186,15 @@ namespace TriplePrime.Data.Services
             var user = await _userManager.FindByIdAsync(marketer.UserId);
             if (user == null) return null;
 
+            // Get referrals and commissions for the marketer
+            var referrals = await _unitOfWork.Repository<Referral>()
+                .ListAsync(new ReferralSpecification(marketer.UserId));
+            var commissions = await _unitOfWork.Repository<Commission>()
+                .ListAsync(new CommissionSpecification(marketer.Id));
+
             return new MarketerDetails
             {
-                Id = marketer.Id,
+                Id = marketer.UserId,
                 UserId = marketer.UserId,
                 Name = $"{user.FirstName} {user.LastName}",
                 Email = user.Email,
@@ -161,14 +202,14 @@ namespace TriplePrime.Data.Services
                 CompanyName = marketer.CompanyName,
                 CommissionRate = marketer.CommissionRate,
                 Status = marketer.IsActive ? "active" : "inactive",
-                TotalCustomers = marketer.TotalCustomers,
-                TotalSales = marketer.TotalSales,
-                TotalCommission = marketer.TotalCommissionEarned,
+                TotalCustomers = referrals.Select(r => r.ReferredUserId).Distinct().Count(),
+                TotalSales = referrals.Sum(r => r.CommissionAmount),
+                TotalCommission = commissions.Sum(c => c.Amount),
                 RegistrationDate = marketer.CreatedAt
             };
         }
 
-        public async Task<MarketerDetails> UpdateMarketerAsync(int id, UpdateMarketerRequest request)
+        public async Task<MarketerDetails> UpdateMarketerAsync(string id, UpdateMarketerRequest request)
         {
             var marketer = await _marketerRepository.GetEntityWithSpec(new MarketerSpecification(id));
             if (marketer == null)
@@ -200,9 +241,15 @@ namespace TriplePrime.Data.Services
             _marketerRepository.Update(marketer);
             await _unitOfWork.SaveChangesAsync();
 
+            // Get updated referrals and commissions
+            var referrals = await _unitOfWork.Repository<Referral>()
+                .ListAsync(new ReferralSpecification(marketer.UserId));
+            var commissions = await _unitOfWork.Repository<Commission>()
+                .ListAsync(new CommissionSpecification(marketer.Id));
+
             return new MarketerDetails
             {
-                Id = marketer.Id,
+                Id = marketer.UserId,
                 UserId = marketer.UserId,
                 Name = $"{user.FirstName} {user.LastName}",
                 Email = user.Email,
@@ -210,14 +257,14 @@ namespace TriplePrime.Data.Services
                 CompanyName = marketer.CompanyName,
                 CommissionRate = marketer.CommissionRate,
                 Status = marketer.IsActive ? "active" : "inactive",
-                TotalCustomers = marketer.TotalCustomers,
-                TotalSales = marketer.TotalSales,
-                TotalCommission = marketer.TotalCommissionEarned,
+                TotalCustomers = referrals.Select(r => r.ReferredUserId).Distinct().Count(),
+                TotalSales = referrals.Sum(r => r.CommissionAmount),
+                TotalCommission = commissions.Sum(c => c.Amount),
                 RegistrationDate = marketer.CreatedAt
             };
         }
 
-        public async Task<MarketerDetails> UpdateCommissionRateAsync(int id, decimal newRate)
+        public async Task<MarketerDetails> UpdateCommissionRateAsync(string id, decimal newRate)
         {
             if (newRate < 0 || newRate > 0.25m)
                 throw new ArgumentException("Commission rate must be between 0 and 25%");
@@ -232,9 +279,16 @@ namespace TriplePrime.Data.Services
             await _unitOfWork.SaveChangesAsync();
 
             var user = await _userManager.FindByIdAsync(marketer.UserId);
+
+            // Get updated referrals and commissions
+            var referrals = await _unitOfWork.Repository<Referral>()
+                .ListAsync(new ReferralSpecification(marketer.UserId));
+            var commissions = await _unitOfWork.Repository<Commission>()
+                .ListAsync(new CommissionSpecification(marketer.Id));
+
             return new MarketerDetails
             {
-                Id = marketer.Id,
+                Id = marketer.UserId,
                 UserId = marketer.UserId,
                 Name = $"{user.FirstName} {user.LastName}",
                 Email = user.Email,
@@ -242,14 +296,14 @@ namespace TriplePrime.Data.Services
                 CompanyName = marketer.CompanyName,
                 CommissionRate = marketer.CommissionRate,
                 Status = marketer.IsActive ? "active" : "inactive",
-                TotalCustomers = marketer.TotalCustomers,
-                TotalSales = marketer.TotalSales,
-                TotalCommission = marketer.TotalCommissionEarned,
+                TotalCustomers = referrals.Select(r => r.ReferredUserId).Distinct().Count(),
+                TotalSales = referrals.Sum(r => r.CommissionAmount),
+                TotalCommission = commissions.Sum(c => c.Amount),
                 RegistrationDate = marketer.CreatedAt
             };
         }
 
-        public async Task<MarketerDetails> ChangeStatusAsync(int id, bool isActive)
+        public async Task<MarketerDetails> ChangeStatusAsync(string id, bool isActive)
         {
             var marketer = await _marketerRepository.GetEntityWithSpec(new MarketerSpecification(id));
             if (marketer == null)
@@ -261,9 +315,16 @@ namespace TriplePrime.Data.Services
             await _unitOfWork.SaveChangesAsync();
 
             var user = await _userManager.FindByIdAsync(marketer.UserId);
+
+            // Get updated referrals and commissions
+            var referrals = await _unitOfWork.Repository<Referral>()
+                .ListAsync(new ReferralSpecification(marketer.UserId));
+            var commissions = await _unitOfWork.Repository<Commission>()
+                .ListAsync(new CommissionSpecification(marketer.Id));
+
             return new MarketerDetails
             {
-                Id = marketer.Id,
+                Id = marketer.UserId,
                 UserId = marketer.UserId,
                 Name = $"{user.FirstName} {user.LastName}",
                 Email = user.Email,
@@ -271,34 +332,48 @@ namespace TriplePrime.Data.Services
                 CompanyName = marketer.CompanyName,
                 CommissionRate = marketer.CommissionRate,
                 Status = marketer.IsActive ? "active" : "inactive",
-                TotalCustomers = marketer.TotalCustomers,
-                TotalSales = marketer.TotalSales,
-                TotalCommission = marketer.TotalCommissionEarned,
+                TotalCustomers = referrals.Select(r => r.ReferredUserId).Distinct().Count(),
+                TotalSales = referrals.Sum(r => r.CommissionAmount),
+                TotalCommission = commissions.Sum(c => c.Amount),
                 RegistrationDate = marketer.CreatedAt
             };
         }
 
-        public async Task<MarketerPerformance> GetMarketerPerformanceAsync(int id, DateTime startDate, DateTime endDate)
+        public async Task<MarketerPerformance> GetMarketerPerformanceAsync(string id, DateTime startDate, DateTime endDate)
         {
             var marketer = await _marketerRepository.GetEntityWithSpec(new MarketerSpecification(id));
             if (marketer == null)
                 throw new ArgumentException("Marketer not found");
 
-            // Get performance data from referrals and commissions
-            var referrals = marketer.Referrals
-                .Where(r => r.CreatedAt >= startDate && r.CreatedAt <= endDate)
-                .ToList();
+            // Get referrals for the marketer within the date range
+            var referrals = await _unitOfWork.Repository<Referral>()
+                .ListAsync(new ReferralSpecification(marketer.UserId, startDate, endDate));
 
-            var commissions = marketer.Commissions
-                .Where(c => c.CreatedAt >= startDate && c.CreatedAt <= endDate)
-                .ToList();
+            // Get commissions for the marketer within the date range
+            var commissions = await _unitOfWork.Repository<Commission>()
+                .ListAsync(new CommissionSpecification(marketer.Id, startDate, endDate));
 
+            // Calculate total customers (unique referred users)
+            var totalCustomers = referrals.Select(r => r.ReferredUserId).Distinct().Count();
+
+            // Calculate total sales (sum of commission amounts from referrals)
+            var totalSales = referrals.Sum(r => r.CommissionAmount);
+
+            // Calculate total commission (sum of commission amounts)
+            var totalCommission = commissions.Sum(c => c.Amount);
+
+            // Calculate conversion rate (completed referrals / total referrals)
+            var conversionRate = referrals.Any() 
+                ? (decimal)referrals.Count(r => r.Status == ReferralStatus.Completed) / referrals.Count() 
+                : 0;
+
+            // Group monthly stats
             var monthlyStats = referrals
                 .GroupBy(r => new { r.CreatedAt.Year, r.CreatedAt.Month })
                 .Select(g => new MonthlyStats
                 {
                     Month = $"{g.Key.Year}-{g.Key.Month:D2}",
-                    Customers = g.Count(),
+                    Customers = g.Select(r => r.ReferredUserId).Distinct().Count(),
                     Sales = g.Sum(r => r.CommissionAmount),
                     Commission = commissions
                         .Where(c => c.CreatedAt.Year == g.Key.Year && c.CreatedAt.Month == g.Key.Month)
@@ -310,15 +385,67 @@ namespace TriplePrime.Data.Services
             {
                 Marketer = new MarketerBasicInfo
                 {
-                    Id = marketer.Id,
+                    Id = marketer.UserId,
                     Name = $"{marketer.User.FirstName} {marketer.User.LastName}"
                 },
-                Customers = referrals.Count,
-                Sales = referrals.Sum(r => r.CommissionAmount),
-                Commission = commissions.Sum(c => c.Amount),
-                ConversionRate = referrals.Any() ? (decimal)referrals.Count(r => r.Status == ReferralStatus.Completed) / referrals.Count : 0,
+                Customers = totalCustomers,
+                Sales = totalSales,
+                Commission = totalCommission,
+                ConversionRate = conversionRate,
                 MonthlyStats = monthlyStats
             };
+        }
+
+        public async Task<IReadOnlyList<ReferredCustomerDetails>> GetReferredCustomersAsync(string marketerId)
+        {
+            var referrals = await _unitOfWork.Repository<Referral>()
+                .ListAsync(new ReferralSpecification(marketerId, true));
+
+            return referrals.Select(r => new ReferredCustomerDetails
+            {
+                Id = r.ReferredUserId,
+                Name = $"{r.ReferredUser.FirstName} {r.ReferredUser.LastName}",
+                PhoneNumber = r.ReferredUser.PhoneNumber,
+                Email = r.ReferredUser.Email,
+                DateJoined = r.CreatedAt,
+                HasActivePlan = r.ReferredUser.SavingsPlans?.Any(sp => sp.Status == "Active") ?? false,
+                ReferralStatus = r.Status.ToString()
+            }).ToList();
+        }
+
+        public async Task<IReadOnlyList<CustomerCommissionDetails>> GetCustomerCommissionsAsync(string marketerId)
+        {
+            var referrals = await _unitOfWork.Repository<Referral>()
+                .ListAsync(new ReferralSpecification(marketerId, true));
+
+            var customerCommissions = new List<CustomerCommissionDetails>();
+
+            foreach (var referral in referrals)
+            {
+                var commissions = await _unitOfWork.Repository<Commission>()
+                    .ListAsync(new CommissionSpecification(referral.Id));
+
+                if (commissions.Any())
+                {
+                    customerCommissions.Add(new CustomerCommissionDetails
+                    {
+                        CustomerId = referral.ReferredUserId,
+                        CustomerName = $"{referral.ReferredUser.FirstName} {referral.ReferredUser.LastName}",
+                        TotalCommission = commissions.Sum(c => c.Amount),
+                        Commissions = commissions.Select(c => new CommissionDetails
+                        {
+                            Id = c.Id,
+                            Amount = c.Amount,
+                            Rate = c.Rate,
+                            Status = c.Status.ToString(),
+                            CreatedAt = c.CreatedAt,
+                            PaymentDate = c.PaymentDate
+                        }).ToList()
+                    });
+                }
+            }
+
+            return customerCommissions;
         }
 
         private string GenerateRandomPassword()
@@ -379,7 +506,7 @@ namespace TriplePrime.Data.Services
 
     public class MarketerDetails
     {
-        public int Id { get; set; }
+        public string Id { get; set; }
         public string UserId { get; set; }
         public string Name { get; set; }
         public string Email { get; set; }
@@ -406,7 +533,7 @@ namespace TriplePrime.Data.Services
 
     public class MarketerBasicInfo
     {
-        public int Id { get; set; }
+        public string Id { get; set; }
         public string Name { get; set; }
     }
 
@@ -416,5 +543,34 @@ namespace TriplePrime.Data.Services
         public int Customers { get; set; }
         public decimal Sales { get; set; }
         public decimal Commission { get; set; }
+    }
+
+    public class ReferredCustomerDetails
+    {
+        public string Id { get; set; }
+        public string Name { get; set; }
+        public string PhoneNumber { get; set; }
+        public string Email { get; set; }
+        public DateTime DateJoined { get; set; }
+        public bool HasActivePlan { get; set; }
+        public string ReferralStatus { get; set; }
+    }
+
+    public class CustomerCommissionDetails
+    {
+        public string CustomerId { get; set; }
+        public string CustomerName { get; set; }
+        public decimal TotalCommission { get; set; }
+        public List<CommissionDetails> Commissions { get; set; }
+    }
+
+    public class CommissionDetails
+    {
+        public int Id { get; set; }
+        public decimal Amount { get; set; }
+        public decimal Rate { get; set; }
+        public string Status { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime? PaymentDate { get; set; }
     }
 } 

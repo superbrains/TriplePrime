@@ -2,8 +2,9 @@ using System;
 using System.Linq.Expressions;
 using Microsoft.AspNetCore.Identity;
 using TriplePrime.Data.Entities;
+using TriplePrime.Data.Interfaces;
 
-namespace TriplePrime.Data.Repositories
+namespace TriplePrime.Data.Interfaces
 {
     public class UserSpecification : BaseSpecification<ApplicationUser>
     {
