@@ -11,6 +11,8 @@ using System.Net.Http;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using System.Security.Claims;
+using System.IO;
+using Microsoft.Extensions.Logging;
 
 namespace TriplePrime.API.Controllers
 {
@@ -23,17 +25,23 @@ namespace TriplePrime.API.Controllers
         private readonly IConfiguration _configuration;
         private readonly HttpClient _httpClient;
         private readonly IPaymentMethodService _paymentMethodService;
+        private readonly SavingsPlanService _savingsPlanService;
+        private readonly ILogger<PaymentController> _logger;
 
         public PaymentController(
             PaymentService paymentService,
             IConfiguration configuration,
             HttpClient httpClient,
-            IPaymentMethodService paymentMethodService)
+            IPaymentMethodService paymentMethodService,
+            SavingsPlanService savingsPlanService,
+            ILogger<PaymentController> logger)
         {
             _paymentService = paymentService;
             _configuration = configuration;
             _httpClient = httpClient;
             _paymentMethodService = paymentMethodService;
+            _savingsPlanService = savingsPlanService;
+            _logger = logger;
         }
 
         [HttpPost]
@@ -253,6 +261,52 @@ namespace TriplePrime.API.Controllers
             catch (System.Exception ex)
             {
                 return BadRequest(new { error = ex.Message });
+            }
+        }
+
+        [HttpPost("webhook")]
+        [AllowAnonymous]
+        public async Task<IActionResult> HandlePaystackWebhook()
+        {
+            try
+            {
+                // Read the request body
+                using var reader = new StreamReader(Request.Body);
+                var requestBody = await reader.ReadToEndAsync();
+
+                // Verify the webhook signature
+                var paystackSignature = Request.Headers["x-paystack-signature"].ToString();
+                var secretKey = _configuration["Paystack:SecretKey"];
+                var computedSignature = BitConverter
+                    .ToString(System.Security.Cryptography.HMACSHA512.HashData(
+                        System.Text.Encoding.UTF8.GetBytes(secretKey),
+                        System.Text.Encoding.UTF8.GetBytes(requestBody)))
+                    .Replace("-", "")
+                    .ToLower();
+
+                if (computedSignature != paystackSignature.ToLower())
+                {
+                    return BadRequest(new { error = "Invalid signature" });
+                }
+
+                // Parse the webhook event
+                var webhookEvent = JsonSerializer.Deserialize<PaystackWebhookEvent>(
+                    requestBody,
+                    new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+
+                // Process the webhook event
+                await _savingsPlanService.HandlePaystackWebhookAsync(webhookEvent);
+
+                return Ok();
+            }
+            catch (Exception ex)
+            {
+                // Log the error but return 200 OK to prevent Paystack from retrying
+                _logger.LogError(ex, "Error processing Paystack webhook");
+                return Ok();
             }
         }
     }

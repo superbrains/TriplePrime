@@ -539,7 +539,7 @@ namespace TriplePrime.Data.Services
                 }
 
                 var token = await _userManager.GeneratePasswordResetTokenAsync(user);
-                var resetLink = $"{_configuration["FrontendUrl"]}/reset-password?email={Uri.EscapeDataString(email)}&token={Uri.EscapeDataString(token)}";
+                var resetLink = $"https://tripleprime.com.ng/reset-password?email={Uri.EscapeDataString(email)}&token={Uri.EscapeDataString(token)}";
 
                 var emailBody = $@"
                     <h2>Password Reset Request</h2>

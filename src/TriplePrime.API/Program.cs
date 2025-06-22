@@ -16,6 +16,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.IO;
 using TriplePrime.Data.Models;
+using Microsoft.AspNetCore.Identity;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -76,7 +77,8 @@ builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
     options.Password.RequiredLength = 8;
     options.User.RequireUniqueEmail = true;
 })
-.AddEntityFrameworkStores<ApplicationDbContext>();
+.AddEntityFrameworkStores<ApplicationDbContext>()
+.AddDefaultTokenProviders();
 
 // Add JWT Authentication
 builder.Services.AddAuthentication(options =>

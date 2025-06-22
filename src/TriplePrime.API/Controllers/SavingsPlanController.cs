@@ -10,6 +10,11 @@ using System.Net.Http;
 using Microsoft.Extensions.Configuration;
 using TriplePrime.Data.Models;
 using Newtonsoft.Json;
+using System.Linq;
+using System.Collections.Generic;
+using TriplePrime.Data.Specifications;
+using TriplePrime.Data.Interfaces;
+using Microsoft.Extensions.Logging;
 
 namespace TriplePrime.API.Controllers
 {
@@ -22,17 +27,23 @@ namespace TriplePrime.API.Controllers
         private readonly PaymentService _paymentService;
         private readonly IConfiguration _configuration;
         private readonly HttpClient _httpClient;
+        private readonly IUnitOfWork _unitOfWork;
+        private readonly ILogger<SavingsPlanController> _logger;
 
         public SavingsPlanController(
             SavingsPlanService savingsPlanService, 
             PaymentService paymentService,
             IConfiguration configuration,
-            HttpClient httpClient)
+            HttpClient httpClient,
+            IUnitOfWork unitOfWork,
+            ILogger<SavingsPlanController> logger)
         {
             _savingsPlanService = savingsPlanService;
             _paymentService = paymentService;
             _configuration = configuration;
             _httpClient = httpClient;
+            _unitOfWork = unitOfWork;
+            _logger = logger;
         }
 
         [HttpPost]
@@ -41,6 +52,16 @@ namespace TriplePrime.API.Controllers
             var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized();
+
+            // If userId is provided in the request and user is admin, use that instead
+            if (!string.IsNullOrEmpty(request.UserId))
+            {
+                var isAdmin = User.IsInRole("Admin");
+                if (!isAdmin)
+                    return Forbid();
+                
+                userId = request.UserId;
+            }
 
             // Create payment method if automatic payment is selected
             int? paymentMethodId = null;
@@ -272,10 +293,160 @@ namespace TriplePrime.API.Controllers
 
             return Ok(schedule);
         }
+
+        [HttpGet("admin/defaulters")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> GetDefaulters([FromQuery] int pageNumber = 1, [FromQuery] int pageSize = 10)
+        {
+            var defaulters = await _savingsPlanService.GetDefaultersAsync(pageNumber, pageSize);
+            var totalCount = await _savingsPlanService.GetDefaultersCountAsync();
+            
+            return Ok(new
+            {
+                Data = defaulters,
+                TotalCount = totalCount,
+                PageNumber = pageNumber,
+                PageSize = pageSize,
+                TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize)
+            });
+        }
+
+        [HttpGet("admin/defaulters/{userId}/details")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> GetDefaulterDetails(string userId)
+        {
+            var spec = new PaymentScheduleSpecification();
+            spec.ApplyUserFilter(userId);
+            spec.ApplyStatusFilter("Pending");
+            spec.ApplyDueDateFilter(DateTime.UtcNow.Date);
+            
+            var dueSchedules = await _unitOfWork.Repository<PaymentSchedule>().ListAsync(spec);
+            var user = await _unitOfWork.Repository<ApplicationUser>().GetEntityWithSpec(new UserSpecification(userId));
+            
+            if (user == null)
+                return NotFound();
+
+            var details = new DefaulterDetails
+            {
+                UserId = userId,
+                FullName = $"{user.FirstName} {user.LastName}",
+                PhoneNumber = user.PhoneNumber,
+                Email = user.Email,
+                Address = user.Address,
+                TotalAmountOwed = dueSchedules.Sum(s => s.Amount),
+                DuePayments = dueSchedules.Select(s => new DuePaymentInfo
+                {
+                    ScheduleId = s.Id,
+                    DueDate = s.DueDate,
+                    Amount = s.Amount,
+                    DaysOverdue = (DateTime.UtcNow - s.DueDate).Days
+                }).OrderByDescending(p => p.DaysOverdue).ToList()
+            };
+
+            return Ok(details);
+        }
+
+        [HttpGet("admin/users-without-plans")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> GetUsersWithoutActivePlans()
+        {
+            try
+            {
+                var users = await _savingsPlanService.GetUsersWithoutActivePlansAsync();
+                return Ok(users);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching users without active plans");
+                return StatusCode(500, "An error occurred while fetching users without active plans");
+            }
+        }
+
+        [HttpPost("{id}/revert-payment")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> RevertPayment(int id, [FromBody] RevertPaymentRequest request)
+        {
+            try
+            {
+                var plan = await _savingsPlanService.GetSavingsPlanByIdAsync(id);
+                if (plan == null)
+                    return NotFound();
+
+                var schedule = plan.PaymentSchedules.FirstOrDefault(s => s.Id == request.ScheduleId);
+                if (schedule == null)
+                    return NotFound();
+
+                if (schedule.Status != "Paid")
+                    return BadRequest(new { message = "This payment schedule is not marked as paid" });
+
+                // Update the schedule
+                schedule.Status = "Pending";
+                schedule.PaymentReference = null;
+                schedule.PaidAt = null;
+                schedule.UpdatedAt = DateTime.UtcNow;
+                schedule.UpdatedBy = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "Admin";
+                schedule.PaymentReference = plan.PaymentPreference??"";
+                // Update the plan
+                plan.AmountPaid -= schedule.Amount;
+                plan.UpdatedAt = DateTime.UtcNow;
+                plan.UpdatedBy = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "Admin";
+
+                // If the plan was completed, change status back to active
+                if (plan.Status == "Completed")
+                {
+                    plan.Status = "Active";
+                }
+
+                _unitOfWork.Repository<SavingsPlan>().Update(plan);
+                await _unitOfWork.SaveChangesAsync();
+
+                return Ok(new { message = "Payment reverted successfully" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Error reverting payment", error = ex.Message });
+            }
+        }
+
+        [HttpPost("{planId}/manual-payment")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> ManualPayment(int planId, [FromBody] ManualPaymentRequest request)
+        {
+            try
+            {
+                var plan = await _savingsPlanService.GetSavingsPlanByIdAsync(planId);
+                if (plan == null)
+                    return NotFound("Savings plan not found");
+
+                var schedule = plan.PaymentSchedules.FirstOrDefault(s => s.Id == request.ScheduleId);
+                if (schedule == null)
+                    return NotFound("Payment schedule not found");
+
+                if (schedule.Status == "Paid")
+                    return BadRequest("This payment has already been made");
+
+                // Process the payment
+                await _savingsPlanService.ProcessPaymentAsync(planId, request.Amount, $"MANUAL-{DateTime.UtcNow.Ticks}");
+
+                return Ok(new { message = "Payment updated successfully" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating manual payment for plan {PlanId}", planId);
+                return StatusCode(500, "An error occurred while updating the payment");
+            }
+        }
+
+        public class ManualPaymentRequest
+        {
+            public int ScheduleId { get; set; }
+            public decimal Amount { get; set; }
+        }
     }
 
     public class CreateSavingsPlanRequest
     {
+        public string UserId { get; set; }  // Optional: Used when admin creates plan for a user
         public int FoodPackId { get; set; }
         public decimal TotalAmount { get; set; }
         public decimal MonthlyAmount { get; set; }
@@ -336,5 +507,29 @@ namespace TriplePrime.API.Controllers
         public string PaymentReference { get; set; }
         public decimal Amount { get; set; }
         public int ScheduleId { get; set; }  // ID of the payment schedule being paid
+    }
+
+    public class DefaulterDetails
+    {
+        public string UserId { get; set; }
+        public string FullName { get; set; }
+        public string PhoneNumber { get; set; }
+        public string Email { get; set; }
+        public string Address { get; set; }
+        public decimal TotalAmountOwed { get; set; }
+        public List<DuePaymentInfo> DuePayments { get; set; }
+    }
+
+    public class DuePaymentInfo
+    {
+        public int ScheduleId { get; set; }
+        public DateTime DueDate { get; set; }
+        public decimal Amount { get; set; }
+        public int DaysOverdue { get; set; }
+    }
+
+    public class RevertPaymentRequest
+    {
+        public int ScheduleId { get; set; }
     }
 } 
