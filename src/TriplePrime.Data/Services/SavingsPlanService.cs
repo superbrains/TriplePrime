@@ -20,17 +20,20 @@ namespace TriplePrime.Data.Services
         private readonly PaymentService _paymentService;
         private readonly PaymentEmailService _paymentEmailService;
         private readonly ILogger<SavingsPlanService> _logger;
+        private readonly RoleManager<ApplicationRole> _roleManager;
 
         public SavingsPlanService(
             IUnitOfWork unitOfWork,
             PaymentService paymentService,
             PaymentEmailService paymentEmailService,
-            ILogger<SavingsPlanService> logger)
+            ILogger<SavingsPlanService> logger,
+            RoleManager<ApplicationRole> roleManager)
         {
             _unitOfWork = unitOfWork;
             _paymentService = paymentService;
             _paymentEmailService = paymentEmailService;
             _logger = logger;
+            _roleManager = roleManager;
         }
 
         private async Task QueuePaymentConfirmationEmail(SavingsPlan plan, PaymentSchedule paidSchedule, string paymentReference)
@@ -114,7 +117,7 @@ namespace TriplePrime.Data.Services
                     if (marketer != null && marketer.IsActive)
                     {
                         var commissionAmount = plan.AmountPaid * marketer.CommissionRate;
-                        
+
                         var commission = new Commission
                         {
                             MarketerId = marketer.Id,
@@ -124,7 +127,11 @@ namespace TriplePrime.Data.Services
                             Status = CommissionStatus.Pending,
                             CreatedAt = DateTime.UtcNow,
                             CreatedBy = "System",
-                            UpdatedBy = "System"
+                            UpdatedBy = "System",
+                            Notes = "",
+                            PaymentDate = DateTime.UtcNow,
+                            PaymentReference = "",
+                            UpdatedAt = DateTime.UtcNow,
                         };
 
                         await _unitOfWork.Repository<Commission>().AddAsync(commission);
@@ -253,7 +260,7 @@ namespace TriplePrime.Data.Services
             }
 
             plan.PaymentPreference = preference;
-            
+
             // Parse payment method JSON and create/update payment method
             if (!string.IsNullOrEmpty(paymentMethodJson))
             {
@@ -315,7 +322,7 @@ namespace TriplePrime.Data.Services
                 .Where(s => s.Status == "Pending")
                 .OrderBy(s => s.DueDate)
                 .FirstOrDefault();
-            
+
             if (schedule != null)
             {
                 schedule.Status = "Paid";
@@ -347,10 +354,10 @@ namespace TriplePrime.Data.Services
             var spec = new SavingsPlanSpecification();
             spec.ApplyUserEmailFilter(customerEmail);
             spec.ApplyStatusFilter("Active");
-            
+
             var plans = await _unitOfWork.Repository<SavingsPlan>().ListAsync(spec);
             var plan = plans.FirstOrDefault(p => string.IsNullOrEmpty(p.SubscriptionCode));
-            
+
             if (plan != null)
             {
                 plan.SubscriptionCode = subscriptionCode;
@@ -372,7 +379,7 @@ namespace TriplePrime.Data.Services
         public async Task<IEnumerable<SavingsPlanWithUserDetails>> GetAllSavingsPlansForAdminAsync(DateTime? startDate, DateTime? endDate, string status)
         {
             var spec = new SavingsPlanSpecification();
-            
+
             if (startDate.HasValue && endDate.HasValue)
             {
                 spec.ApplyDateRangeFilter(startDate.Value, endDate.Value);
@@ -384,14 +391,14 @@ namespace TriplePrime.Data.Services
             }
 
             var plans = await _unitOfWork.Repository<SavingsPlan>().ListAsync(spec);
-            
+
             // Include user and food pack details
             var plansWithDetails = plans.Select(plan => new SavingsPlanWithUserDetails
             {
                 Id = plan.Id,
                 UserFullName = $"{plan.User.FirstName} {plan.User.LastName}",
                 UserPhoneNumber = plan.User.PhoneNumber,
-                EmailAddress =plan.User.Email,
+                EmailAddress = plan.User.Email,
                 UserAddress = plan.User.Address,
                 FoodPackName = plan.FoodPack.Name,
                 TotalAmount = plan.TotalAmount,
@@ -452,9 +459,9 @@ namespace TriplePrime.Data.Services
             var spec = new PaymentScheduleSpecification();
             spec.ApplyStatusFilter("Pending");
             spec.ApplyDueDateFilter(DateTime.UtcNow.Date);
-            
+
             var dueSchedules = await _unitOfWork.Repository<PaymentSchedule>().ListAsync(spec);
-            
+
             foreach (var schedule in dueSchedules)
             {
                 var plan = await GetSavingsPlanByIdAsync(schedule.SavingsPlanId);
@@ -538,5 +545,226 @@ namespace TriplePrime.Data.Services
                 throw;
             }
         }
+
+        public async Task<IEnumerable<DefaulterInfo>> GetDefaultersAsync(int pageNumber = 1, int pageSize = 10)
+        {
+            var spec = new PaymentScheduleSpecification();
+            spec.ApplyStatusFilter("Pending");
+            spec.ApplyDueDateFilter(DateTime.UtcNow.Date); // Get all overdue payments
+
+            var dueSchedules = await _unitOfWork.Repository<PaymentSchedule>().ListAsync(spec);
+
+            // Group by user and calculate total amount owed
+            var defaulters = dueSchedules
+                .Where(s => s.SavingsPlan != null && s.SavingsPlan.User != null)
+                .GroupBy(s => s.SavingsPlan.UserId)
+                .Select(g => new DefaulterInfo
+                {
+                    UserId = g.Key,
+                    FullName = $"{g.First().SavingsPlan.User.FirstName} {g.First().SavingsPlan.User.LastName}",
+                    PhoneNumber = g.First().SavingsPlan.User.PhoneNumber,
+                    TotalAmountOwed = g.Sum(s => s.Amount),
+                    DuePayments = g.Count(),
+                    LastPaymentDate = g.First().SavingsPlan.LastPaymentDate
+                })
+                .OrderByDescending(d => d.TotalAmountOwed)
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .ToList();
+
+            return defaulters;
+        }
+
+        public async Task<int> GetDefaultersCountAsync()
+        {
+            var spec = new PaymentScheduleSpecification();
+            spec.ApplyStatusFilter("Pending");
+            spec.ApplyDueDateFilter(DateTime.UtcNow.Date);
+
+            var dueSchedules = await _unitOfWork.Repository<PaymentSchedule>().ListAsync(spec);
+            return dueSchedules.Select(s => s.SavingsPlan.UserId).Distinct().Count();
+        }
+
+        public async Task HandlePaystackWebhookAsync(PaystackWebhookEvent webhookEvent)
+        {
+            if (webhookEvent?.Data == null || webhookEvent.Event != "charge.success")
+            {
+                return;
+            }
+
+            var metadata = webhookEvent.Data.Metadata;
+            var customFields = metadata?.CustomFields ?? new List<PaystackCustomField>();
+            
+            var foodPackId = customFields.FirstOrDefault(f => f.VariableName == "food_pack")?.Value?.ToString();
+            var paymentType = customFields.FirstOrDefault(f => f.VariableName == "payment_type")?.Value?.ToString();
+            var paymentFrequency = customFields.FirstOrDefault(f => f.VariableName == "payment_frequency")?.Value?.ToString();
+            var isAutomatic = customFields.FirstOrDefault(f => f.VariableName == "is_automatic")?.Value?.ToString()?.ToLower() == "true";
+            var scheduleId = customFields.FirstOrDefault(f => f.VariableName == "schedule_id")?.Value?.ToString();
+
+            await _unitOfWork.BeginTransactionAsync();
+            try
+            {
+                if (string.IsNullOrEmpty(scheduleId))
+                {
+                    // Check if a plan was already created with this payment reference
+                    var existingPlanSpec = new SavingsPlanSpecification();
+                    existingPlanSpec.ApplyPaymentReferenceFilter(webhookEvent.Data.Reference);
+                    var existingPlan = await _unitOfWork.Repository<SavingsPlan>().GetEntityWithSpec(existingPlanSpec);
+
+                    if (existingPlan != null)
+                    {
+                        // Plan already exists, nothing to do
+                        await _unitOfWork.CommitTransactionAsync();
+                        return;
+                    }
+
+                    // This is a new savings plan
+                    var plan = new SavingsPlan
+                    {
+                        UserId = webhookEvent.Data.Customer.Email,
+                        FoodPackId = int.Parse(foodPackId),
+                        TotalAmount = webhookEvent.Data.Amount / 100m, // Convert from kobo to naira
+                        MonthlyAmount = webhookEvent.Data.Amount / 100m, // For first payment
+                        StartDate = DateTime.UtcNow,
+                        PaymentPreference = isAutomatic ? "automatic" : "manual",
+                        PaymentFrequency = paymentFrequency,
+                        Duration = 1, // Default to 1 month for first payment
+                        Status = "Active",
+                        CreatedAt = DateTime.UtcNow,
+                        RemindersEnabled = true,
+                        CreatedBy = "Admin",
+                        UpdatedBy = "Admin"
+                    };
+
+                    await CreateSavingsPlanAsync(plan, webhookEvent.Data.Reference);
+                }
+                else
+                {
+                    // This is a payment for an existing schedule
+                    var scheduleSpec = new PaymentScheduleSpecification();
+                    scheduleSpec.ApplyScheduleFilter(int.Parse(scheduleId));
+                    var schedule = await _unitOfWork.Repository<PaymentSchedule>()
+                        .GetEntityWithSpec(scheduleSpec);
+
+                    if (schedule == null)
+                    {
+                        throw new ArgumentException($"Payment schedule with ID {scheduleId} not found");
+                    }
+
+                    // Check if this schedule has already been paid
+                    if (schedule.Status == "Paid")
+                    {
+                        // Schedule already paid, nothing to do
+                        await _unitOfWork.CommitTransactionAsync();
+                        return;
+                    }
+
+                    // Check if this payment reference was already used
+                    //if (!string.IsNullOrEmpty(schedule.PaymentReference))
+                    //{
+                    //    // Payment reference already exists, nothing to do
+                    //    await _unitOfWork.CommitTransactionAsync();
+                    //    return;
+                    //}
+
+                    var plan = await GetSavingsPlanByIdAsync(schedule.SavingsPlanId);
+                    if (plan == null)
+                    {
+                        throw new ArgumentException($"Savings plan with ID {schedule.SavingsPlanId} not found");
+                    }
+
+                    // Update the payment schedule
+                    schedule.Status = "Paid";
+                    schedule.PaymentReference = webhookEvent.Data.Reference;
+                    schedule.PaidAt = DateTime.UtcNow;
+                    schedule.UpdatedAt = DateTime.UtcNow;
+                    schedule.UpdatedBy = "System";
+
+                    // Update plan payment details
+                    plan.AmountPaid += webhookEvent.Data.Amount / 100m; // Convert from kobo to naira
+                    plan.LastPaymentDate = DateTime.UtcNow;
+                    plan.UpdatedAt = DateTime.UtcNow;
+                    plan.UpdatedBy = "System";
+
+                    // Check if plan is completed
+                    if (plan.AmountPaid >= plan.TotalAmount)
+                    {
+                        plan.Status = "Completed";
+                    }
+
+                    _unitOfWork.Repository<SavingsPlan>().Update(plan);
+                    await _unitOfWork.SaveChangesAsync();
+
+                    // Queue payment confirmation email
+                    await QueuePaymentConfirmationEmail(plan, schedule, webhookEvent.Data.Reference);
+                }
+
+                await _unitOfWork.CommitTransactionAsync();
+            }
+            catch
+            {
+                await _unitOfWork.RollbackTransactionAsync();
+                throw;
+            }
+        }
+
+        public async Task<IEnumerable<UserWithoutPlanInfo>> GetUsersWithoutActivePlansAsync()
+        {
+            // Get all users
+            var users = await _unitOfWork.Repository<ApplicationUser>()
+                .ListAsync(new UserSpecification());
+
+            // Get all active savings plans
+            var activePlans = await _unitOfWork.Repository<SavingsPlan>()
+                .ListAsync(new SavingsPlanSpecification());
+
+            // Filter users with active plans
+            var usersWithActivePlans = activePlans
+                .Where(p => p.Status == "Active")
+                .Select(p => p.UserId)
+                .Distinct();
+
+            // Get the Customer role
+            var customerRole = await _roleManager.FindByNameAsync("Customer");
+            if (customerRole == null)
+            {
+                throw new InvalidOperationException("Customer role not found");
+            }
+
+            // Filter users with Customer role and without active plans
+            var usersWithoutPlans = users
+                .Where(u => u.UserRoles.Any(r => r.RoleId == customerRole.Id) && !usersWithActivePlans.Contains(u.Id));
+
+            // Map to UserWithoutPlanInfo
+            return usersWithoutPlans.Select(u => new UserWithoutPlanInfo
+            {
+                UserId = u.Id,
+                FullName = $"{u.FirstName} {u.LastName}",
+                Email = u.Email,
+                PhoneNumber = u.PhoneNumber,
+                Address = u.Address,
+                RegistrationDate = u.CreatedAt
+            });
+        }
     }
-} 
+
+    public class DefaulterInfo
+    {
+        public string UserId { get; set; }
+        public string FullName { get; set; }
+        public string PhoneNumber { get; set; }
+        public decimal TotalAmountOwed { get; set; }
+        public int DuePayments { get; set; }
+        public DateTime? LastPaymentDate { get; set; }
+    }
+
+    public class UserWithoutPlanInfo
+    {
+        public string UserId { get; set; }
+        public string FullName { get; set; }
+        public string Email { get; set; }
+        public string PhoneNumber { get; set; }
+        public string Address { get; set; }
+        public DateTime RegistrationDate { get; set; }
+    }
+}

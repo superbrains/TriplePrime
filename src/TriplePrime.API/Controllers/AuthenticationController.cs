@@ -15,6 +15,7 @@ using System.ComponentModel.DataAnnotations;
 namespace TriplePrime.API.Controllers
 {
     [AllowAnonymous]
+    [ApiController]
     public class AuthenticationController : BaseController
     {
         private readonly AuthenticationService _authService;

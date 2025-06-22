@@ -4,7 +4,7 @@ using TriplePrime.Data.Entities;
 using TriplePrime.Data.Interfaces;
 using TriplePrime.Data.Repositories;
 
-namespace TriplePrime.Data.Interfaces
+namespace TriplePrime.Data.Specifications
 {
     public class SavingsPlanSpecification : BaseSpecification<SavingsPlan>
     {
@@ -27,28 +27,34 @@ namespace TriplePrime.Data.Interfaces
 
         public void ApplyUserFilter(string userId)
         {
-            Criteria = p => p.UserId == userId;
+            AddCriteria(p => p.UserId == userId);
         }
 
         public void ApplyStatusFilter(string status)
         {
-            Criteria = p => p.Status == status;
+            AddCriteria(p => p.Status == status);
         }
 
         public void ApplySubscriptionCodeFilter(string subscriptionCode)
         {
-            Criteria = p => p.SubscriptionCode == subscriptionCode;
+            AddCriteria(p => p.SubscriptionCode == subscriptionCode);
         }
 
         public void ApplyUserEmailFilter(string email)
         {
-            Criteria = p => p.User.Email == email;
-            IncludeStrings.Add("User");
+            AddCriteria(p => p.User.Email == email);
+            AddInclude(x => x.User);
         }
 
         public void ApplyDateRangeFilter(DateTime startDate, DateTime endDate)
         {
-            Criteria = p => p.StartDate >= startDate && p.StartDate <= endDate;
+            AddCriteria(p => p.StartDate >= startDate && p.StartDate <= endDate);
+        }
+
+        public void ApplyPaymentReferenceFilter(string reference)
+        {
+            AddCriteria(p => p.PaymentSchedules.Any(ps => ps.PaymentReference == reference));
+            AddInclude(x => x.PaymentSchedules);
         }
     }
 } 
