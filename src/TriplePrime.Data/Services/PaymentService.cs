@@ -19,6 +19,7 @@ namespace TriplePrime.Data.Services
     {
         Task<PaystackInitializeData> InitializePaystackPaymentAsync(PaystackInitializeRequest request, string userId);
         Task<PaystackVerifyData> VerifyPaystackPaymentAsync(string reference, string userId);
+        Task<PaystackVerifyData> ChargeAuthorizationAsync(string email, string authorizationCode, decimal amountNaira, string reference);
     }
 
     public class PaymentService : IPaymentService
@@ -440,6 +441,36 @@ namespace TriplePrime.Data.Services
             catch (Exception ex)
             {
                 throw new Exception($"Error verifying Paystack payment: {ex.Message}", ex);
+            }
+        }
+
+        public async Task<PaystackVerifyData> ChargeAuthorizationAsync(string email, string authorizationCode, decimal amountNaira, string reference)
+        {
+            try
+            {
+                var payloadObj = new
+                {
+                    email,
+                    amount = (int)Math.Round(amountNaira * 100), // kobo
+                    authorization_code = authorizationCode,
+                    reference
+                };
+
+                var content = new StringContent(JsonSerializer.Serialize(payloadObj), Encoding.UTF8, "application/json");
+                var response = await _httpClient.PostAsync($"{_paystackBaseUrl}/transaction/charge_authorization", content);
+                var json = await response.Content.ReadAsStringAsync();
+                var result = JsonSerializer.Deserialize<PaystackVerifyResponse>(json);
+
+                if (!response.IsSuccessStatusCode || result == null || !result.Status)
+                {
+                    throw new Exception($"Failed to charge authorization: {json}");
+                }
+
+                return result.Data; // Contains status, reference etc.
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error charging authorization: {ex.Message}", ex);
             }
         }
     }

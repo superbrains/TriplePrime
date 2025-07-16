@@ -27,7 +27,7 @@ namespace TriplePrime.Data.Entities
 
         [Required]
         public string UserId { get; set; }
-        public ApplicationUser User { get; set; }
+        public virtual ApplicationUser User { get; set; }
 
         [Required]
         public NotificationType Type { get; set; }

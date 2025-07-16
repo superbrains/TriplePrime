@@ -14,6 +14,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using TriplePrime.Data.Repositories;
+using TriplePrime.Data.Specifications;
 
 namespace TriplePrime.Data.Services
 {
@@ -155,13 +156,83 @@ namespace TriplePrime.Data.Services
             await _unitOfWork.BeginTransactionAsync();
             try
             {
-                var result = await _userManager.CreateAsync(user, password);
-                if (!result.Succeeded)
+                // Validate user data
+                if (string.IsNullOrWhiteSpace(user.Email))
                 {
                     return new AuthenticationResult
                     {
                         Success = false,
-                        ErrorMessage = string.Join(", ", result.Errors)
+                        ErrorMessage = "Email address is required."
+                    };
+                }
+
+                if (string.IsNullOrWhiteSpace(user.FirstName) || string.IsNullOrWhiteSpace(user.LastName))
+                {
+                    return new AuthenticationResult
+                    {
+                        Success = false,
+                        ErrorMessage = "Both first name and last name are required."
+                    };
+                }
+
+                // Check if user already exists
+                var existingUser = await _userManager.FindByEmailAsync(user.Email);
+                if (existingUser != null)
+                {
+                    return new AuthenticationResult
+                    {
+                        Success = false,
+                        ErrorMessage = "An account with this email address already exists."
+                    };
+                }
+
+                var result = await _userManager.CreateAsync(user, password);
+                if (!result.Succeeded)
+                {
+                    var errorMessage = "Registration failed: ";
+                    foreach (var error in result.Errors)
+                    {
+                        switch (error.Code)
+                        {
+                            case "PasswordTooShort":
+                                errorMessage = "Password must be at least 6 characters long.";
+                                break;
+                            case "PasswordRequiresNonAlphanumeric":
+                                errorMessage = "Password must contain at least one special character.";
+                                break;
+                            case "PasswordRequiresDigit":
+                                errorMessage = "Password must contain at least one number.";
+                                break;
+                            case "PasswordRequiresUpper":
+                                errorMessage = "Password must contain at least one uppercase letter.";
+                                break;
+                            case "PasswordRequiresLower":
+                                errorMessage = "Password must contain at least one lowercase letter.";
+                                break;
+                            case "DuplicateUserName":
+                                errorMessage = "This username is already taken.";
+                                break;
+                            case "InvalidUserName":
+                                errorMessage = "Invalid username. Use only letters and numbers.";
+                                break;
+                            case "InvalidEmail":
+                                errorMessage = "Please enter a valid email address.";
+                                break;
+                            default:
+                                errorMessage = error.Description;
+                                break;
+                        }
+                        // Break after first error to avoid overwhelming the user
+                        break;
+                    }
+
+                    _logger.LogWarning("User registration failed for {Email}: {Error}", 
+                        user.Email, errorMessage);
+
+                    return new AuthenticationResult
+                    {
+                        Success = false,
+                        ErrorMessage = errorMessage
                     };
                 }
 
@@ -382,6 +453,7 @@ namespace TriplePrime.Data.Services
             {
                 var users = await _userManager.Users
                     .Include(u => u.UserRoles)
+                    .OrderByDescending(u => u.CreatedAt)
                     .ToListAsync();
 
                 var userDetails = new List<UserDetails>();
@@ -473,10 +545,175 @@ namespace TriplePrime.Data.Services
                 throw new ArgumentException("User not found");
             }
 
-            var result = await _userManager.DeleteAsync(user);
-            if (!result.Succeeded)
+            const int batchSize = 100;
+            try
             {
-                throw new Exception($"Failed to delete user: {string.Join(", ", result.Errors)}");
+                // 1. Delete all payment schedules first (they depend on savings plans)
+                var scheduleSpec = new PaymentScheduleSpecification();
+                scheduleSpec.ApplyUserFilter(userId);
+                var schedules = await _unitOfWork.Repository<PaymentSchedule>().ListAsync(scheduleSpec);
+                
+                foreach (var batch in schedules.Chunk(batchSize))
+                {
+                    foreach (var schedule in batch)
+                    {
+                        _unitOfWork.Repository<PaymentSchedule>().Remove(schedule);
+                    }
+                    await _unitOfWork.SaveChangesAsync();
+                }
+
+                // 2. Delete all savings plans
+                var plansSpec = new SavingsPlanSpecification();
+                plansSpec.ApplyUserFilter(userId);
+                var plans = await _unitOfWork.Repository<SavingsPlan>().ListAsync(plansSpec);
+                
+                foreach (var batch in plans.Chunk(batchSize))
+                {
+                    foreach (var plan in batch)
+                    {
+                        _unitOfWork.Repository<SavingsPlan>().Remove(plan);
+                    }
+                    await _unitOfWork.SaveChangesAsync();
+                }
+
+                // 3. Delete all commissions first (they depend on referrals)
+                var marketerSpec = new MarketerSpecification(userId);
+                var marketer = await _unitOfWork.Repository<Marketer>().GetEntityWithSpec(marketerSpec);
+                if (marketer != null)
+                {
+                    var commissionSpec = new CommissionSpecification();
+                    commissionSpec.ApplyMarketerFilter(marketer.Id);
+                    var commissions = await _unitOfWork.Repository<Commission>().ListAsync(commissionSpec);
+                    
+                    foreach (var batch in commissions.Chunk(batchSize))
+                    {
+                        foreach (var commission in batch)
+                        {
+                            _unitOfWork.Repository<Commission>().Remove(commission);
+                        }
+                        await _unitOfWork.SaveChangesAsync();
+                    }
+                }
+
+                // 4. Delete all referrals
+                var referralsAsReferrerSpec = new ReferralSpecification(userId, true);
+                var referralsAsReferredSpec = new ReferralSpecification(userId, true, true);
+                
+                var allReferrals = new List<Referral>();
+                allReferrals.AddRange(await _unitOfWork.Repository<Referral>().ListAsync(referralsAsReferrerSpec));
+                allReferrals.AddRange(await _unitOfWork.Repository<Referral>().ListAsync(referralsAsReferredSpec));
+                
+                foreach (var batch in allReferrals.Chunk(batchSize))
+                {
+                    foreach (var referral in batch)
+                    {
+                        _unitOfWork.Repository<Referral>().Remove(referral);
+                    }
+                    await _unitOfWork.SaveChangesAsync();
+                }
+
+                // 5. Delete all payments
+                var paymentSpec = new PaymentSpecification();
+                paymentSpec.ApplyUserFilter(userId);
+                var payments = await _unitOfWork.Repository<Payment>().ListAsync(paymentSpec);
+
+                foreach (var batch in payments.Chunk(batchSize))
+                {
+                    foreach (var payment in batch)
+                    {
+                        _unitOfWork.Repository<Payment>().Remove(payment);
+                    }
+                    await _unitOfWork.SaveChangesAsync();
+                }
+
+                // 6. Delete all food pack purchases
+                var purchaseSpec = new FoodPackPurchaseSpecification();
+                purchaseSpec.ApplyUserFilter(userId);
+                var purchases = await _unitOfWork.Repository<FoodPackPurchase>().ListAsync(purchaseSpec);
+
+                foreach (var batch in purchases.Chunk(batchSize))
+                {
+                    foreach (var purchase in batch)
+                    {
+                        _unitOfWork.Repository<FoodPackPurchase>().Remove(purchase);
+                    }
+                    await _unitOfWork.SaveChangesAsync();
+                }
+
+                // 7. Delete all deliveries
+                var deliverySpec = new DeliverySpecification();
+                deliverySpec.ApplyUserFilter(userId);
+                var deliveries = await _unitOfWork.Repository<Delivery>().ListAsync(deliverySpec);
+
+                foreach (var batch in deliveries.Chunk(batchSize))
+                {
+                    foreach (var delivery in batch)
+                    {
+                        _unitOfWork.Repository<Delivery>().Remove(delivery);
+                    }
+                    await _unitOfWork.SaveChangesAsync();
+                }
+
+                // 8. Delete all reports
+                var reportSpec = new ReportSpecification(userId);
+                var reports = await _unitOfWork.Repository<Report>().ListAsync(reportSpec);
+
+                foreach (var batch in reports.Chunk(batchSize))
+                {
+                    foreach (var report in batch)
+                    {
+                        _unitOfWork.Repository<Report>().Remove(report);
+                    }
+                    await _unitOfWork.SaveChangesAsync();
+                }
+
+                // 9. Delete the marketer record if exists
+                if (marketer != null)
+                {
+                    _unitOfWork.Repository<Marketer>().Remove(marketer);
+                    await _unitOfWork.SaveChangesAsync();
+                }
+
+                // 10. Delete all payment methods
+                var paymentMethodSpec = new PaymentMethodSpecification();
+                paymentMethodSpec.ApplyUserFilter(userId);
+                var paymentMethods = await _unitOfWork.Repository<PaymentMethod>().ListAsync(paymentMethodSpec);
+                
+                foreach (var batch in paymentMethods.Chunk(batchSize))
+                {
+                    foreach (var method in batch)
+                    {
+                        _unitOfWork.Repository<PaymentMethod>().Remove(method);
+                    }
+                    await _unitOfWork.SaveChangesAsync();
+                }
+
+                // 11. Remove user roles and claims
+                var userRoles = await _userManager.GetRolesAsync(user);
+                if (userRoles.Any())
+                {
+                    await _userManager.RemoveFromRolesAsync(user, userRoles);
+                }
+                var userClaims = await _userManager.GetClaimsAsync(user);
+                if (userClaims.Any())
+                {
+                    await _userManager.RemoveClaimsAsync(user, userClaims);
+                }
+
+                // 12. Finally delete the user
+                var result = await _userManager.DeleteAsync(user);
+                if (!result.Succeeded)
+                {
+                    var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+                    throw new InvalidOperationException($"Failed to delete user: {errors}");
+                }
+
+                _logger.LogInformation("Successfully deleted user {UserId} and all associated data", userId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to delete user {UserId}", userId);
+                throw new InvalidOperationException("Failed to delete user. Please try again or contact support if the issue persists.", ex);
             }
         }
 

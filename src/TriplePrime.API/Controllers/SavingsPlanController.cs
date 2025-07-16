@@ -437,6 +437,26 @@ namespace TriplePrime.API.Controllers
             }
         }
 
+        [HttpDelete("{id}")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> DeleteSavingsPlan(int id)
+        {
+            try
+            {
+                await _savingsPlanService.DeleteSavingsPlanAsync(id);
+                return Ok(new { message = "Savings plan deleted successfully" });
+            }
+            catch (ArgumentException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting savings plan {PlanId}", id);
+                return StatusCode(500, new { message = "An error occurred while deleting the savings plan" });
+            }
+        }
+
         public class ManualPaymentRequest
         {
             public int ScheduleId { get; set; }

@@ -98,5 +98,10 @@ namespace TriplePrime.Data.Repositories
             else
                 ApplyOrderBy(c => c.Amount);
         }
+
+        public void ApplyMarketerFilter(int marketerId)
+        {
+            Criteria = c => c.MarketerId == marketerId;
+        }
     }
 } 

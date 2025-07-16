@@ -533,9 +533,9 @@ namespace TriplePrime.Data.Services
                 // Queue payment confirmation email
                 await QueuePaymentConfirmationEmail(plan, schedule, paymentReference);
 
-                _unitOfWork.Repository<SavingsPlan>().Update(plan);
-                await _unitOfWork.SaveChangesAsync();
-                await _unitOfWork.CommitTransactionAsync();
+                //_unitOfWork.Repository<SavingsPlan>().Update(plan);
+                //await _unitOfWork.SaveChangesAsync();
+                //await _unitOfWork.CommitTransactionAsync();
 
                 return plan;
             }
@@ -601,103 +601,90 @@ namespace TriplePrime.Data.Services
             var isAutomatic = customFields.FirstOrDefault(f => f.VariableName == "is_automatic")?.Value?.ToString()?.ToLower() == "true";
             var scheduleId = customFields.FirstOrDefault(f => f.VariableName == "schedule_id")?.Value?.ToString();
 
+            if (string.IsNullOrEmpty(scheduleId))
+            {
+                // New savings plan path: rely on CreateSavingsPlanAsync (which manages its own transaction)
+
+                // Check if a plan was already created for this user today (using LastPaymentDate)
+                var existingPlanSpec = new SavingsPlanSpecification();
+                existingPlanSpec.ApplyUserEmailFilter(webhookEvent.Data.Customer.Email);
+                existingPlanSpec.ApplyLastPaymentDateFilter(DateTime.UtcNow);
+                var existingPlan = await _unitOfWork.Repository<SavingsPlan>().GetEntityWithSpec(existingPlanSpec);
+
+                if (existingPlan != null)
+                {
+                    return; // Plan already exists; nothing to do
+                }
+
+                var plan = new SavingsPlan
+                {
+                    UserId = webhookEvent.Data.Customer.Email,
+                    FoodPackId = int.Parse(foodPackId),
+                    TotalAmount = webhookEvent.Data.Amount / 100m,
+                    MonthlyAmount = webhookEvent.Data.Amount / 100m,
+                    StartDate = DateTime.UtcNow,
+                    PaymentPreference = isAutomatic ? "automatic" : "manual",
+                    PaymentFrequency = paymentFrequency,
+                    Duration = 1
+                };
+
+                await CreateSavingsPlanAsync(plan, webhookEvent.Data.Reference);
+                return; // Done
+            }
+
+            // Existing schedule payment: manage explicit transaction here
             await _unitOfWork.BeginTransactionAsync();
             try
             {
-                if (string.IsNullOrEmpty(scheduleId))
+                // This is a payment for an existing schedule
+                var scheduleSpec = new PaymentScheduleSpecification();
+                scheduleSpec.ApplyScheduleFilter(int.Parse(scheduleId));
+                var schedule = await _unitOfWork.Repository<PaymentSchedule>()
+                    .GetEntityWithSpec(scheduleSpec);
+
+                if (schedule == null)
                 {
-                    // Check if a plan was already created with this payment reference
-                    var existingPlanSpec = new SavingsPlanSpecification();
-                    existingPlanSpec.ApplyPaymentReferenceFilter(webhookEvent.Data.Reference);
-                    var existingPlan = await _unitOfWork.Repository<SavingsPlan>().GetEntityWithSpec(existingPlanSpec);
-
-                    if (existingPlan != null)
-                    {
-                        // Plan already exists, nothing to do
-                        await _unitOfWork.CommitTransactionAsync();
-                        return;
-                    }
-
-                    // This is a new savings plan
-                    var plan = new SavingsPlan
-                    {
-                        UserId = webhookEvent.Data.Customer.Email,
-                        FoodPackId = int.Parse(foodPackId),
-                        TotalAmount = webhookEvent.Data.Amount / 100m, // Convert from kobo to naira
-                        MonthlyAmount = webhookEvent.Data.Amount / 100m, // For first payment
-                        StartDate = DateTime.UtcNow,
-                        PaymentPreference = isAutomatic ? "automatic" : "manual",
-                        PaymentFrequency = paymentFrequency,
-                        Duration = 1, // Default to 1 month for first payment
-                        Status = "Active",
-                        CreatedAt = DateTime.UtcNow,
-                        RemindersEnabled = true,
-                        CreatedBy = "Admin",
-                        UpdatedBy = "Admin"
-                    };
-
-                    await CreateSavingsPlanAsync(plan, webhookEvent.Data.Reference);
+                    throw new ArgumentException($"Payment schedule with ID {scheduleId} not found");
                 }
-                else
+
+                // Check if this schedule has already been paid
+                if (schedule.Status == "Paid")
                 {
-                    // This is a payment for an existing schedule
-                    var scheduleSpec = new PaymentScheduleSpecification();
-                    scheduleSpec.ApplyScheduleFilter(int.Parse(scheduleId));
-                    var schedule = await _unitOfWork.Repository<PaymentSchedule>()
-                        .GetEntityWithSpec(scheduleSpec);
-
-                    if (schedule == null)
-                    {
-                        throw new ArgumentException($"Payment schedule with ID {scheduleId} not found");
-                    }
-
-                    // Check if this schedule has already been paid
-                    if (schedule.Status == "Paid")
-                    {
-                        // Schedule already paid, nothing to do
-                        await _unitOfWork.CommitTransactionAsync();
-                        return;
-                    }
-
-                    // Check if this payment reference was already used
-                    //if (!string.IsNullOrEmpty(schedule.PaymentReference))
-                    //{
-                    //    // Payment reference already exists, nothing to do
-                    //    await _unitOfWork.CommitTransactionAsync();
-                    //    return;
-                    //}
-
-                    var plan = await GetSavingsPlanByIdAsync(schedule.SavingsPlanId);
-                    if (plan == null)
-                    {
-                        throw new ArgumentException($"Savings plan with ID {schedule.SavingsPlanId} not found");
-                    }
-
-                    // Update the payment schedule
-                    schedule.Status = "Paid";
-                    schedule.PaymentReference = webhookEvent.Data.Reference;
-                    schedule.PaidAt = DateTime.UtcNow;
-                    schedule.UpdatedAt = DateTime.UtcNow;
-                    schedule.UpdatedBy = "System";
-
-                    // Update plan payment details
-                    plan.AmountPaid += webhookEvent.Data.Amount / 100m; // Convert from kobo to naira
-                    plan.LastPaymentDate = DateTime.UtcNow;
-                    plan.UpdatedAt = DateTime.UtcNow;
-                    plan.UpdatedBy = "System";
-
-                    // Check if plan is completed
-                    if (plan.AmountPaid >= plan.TotalAmount)
-                    {
-                        plan.Status = "Completed";
-                    }
-
-                    _unitOfWork.Repository<SavingsPlan>().Update(plan);
-                    await _unitOfWork.SaveChangesAsync();
-
-                    // Queue payment confirmation email
-                    await QueuePaymentConfirmationEmail(plan, schedule, webhookEvent.Data.Reference);
+                    // Schedule already paid, nothing to do
+                    await _unitOfWork.CommitTransactionAsync();
+                    return;
                 }
+
+                var plan = await GetSavingsPlanByIdAsync(schedule.SavingsPlanId);
+                if (plan == null)
+                {
+                    throw new ArgumentException($"Savings plan with ID {schedule.SavingsPlanId} not found");
+                }
+
+                // Update the payment schedule
+                schedule.Status = "Paid";
+                schedule.PaymentReference = webhookEvent.Data.Reference;
+                schedule.PaidAt = DateTime.UtcNow;
+                schedule.UpdatedAt = DateTime.UtcNow;
+                schedule.UpdatedBy = "System";
+
+                // Update plan payment details
+                plan.AmountPaid += webhookEvent.Data.Amount / 100m; // Convert from kobo to naira
+                plan.LastPaymentDate = DateTime.UtcNow;
+                plan.UpdatedAt = DateTime.UtcNow;
+                plan.UpdatedBy = "System";
+
+                // Check if plan is completed
+                if (plan.AmountPaid >= plan.TotalAmount)
+                {
+                    plan.Status = "Completed";
+                }
+
+                _unitOfWork.Repository<SavingsPlan>().Update(plan);
+                await _unitOfWork.SaveChangesAsync();
+
+                // Queue payment confirmation email
+                await QueuePaymentConfirmationEmail(plan, schedule, webhookEvent.Data.Reference);
 
                 await _unitOfWork.CommitTransactionAsync();
             }
@@ -733,7 +720,8 @@ namespace TriplePrime.Data.Services
 
             // Filter users with Customer role and without active plans
             var usersWithoutPlans = users
-                .Where(u => u.UserRoles.Any(r => r.RoleId == customerRole.Id) && !usersWithActivePlans.Contains(u.Id));
+                .Where(u => u.UserRoles.Any(r => r.RoleId == customerRole.Id) && !usersWithActivePlans.Contains(u.Id))
+                .OrderByDescending(u => u.CreatedAt);
 
             // Map to UserWithoutPlanInfo
             return usersWithoutPlans.Select(u => new UserWithoutPlanInfo
@@ -745,6 +733,43 @@ namespace TriplePrime.Data.Services
                 Address = u.Address,
                 RegistrationDate = u.CreatedAt
             });
+        }
+
+        public async Task DeleteSavingsPlanAsync(int planId)
+        {
+            var plan = await GetSavingsPlanByIdAsync(planId);
+            if (plan == null)
+            {
+                throw new ArgumentException($"Savings plan with ID {planId} not found");
+            }
+
+            await _unitOfWork.BeginTransactionAsync();
+            try
+            {
+                // Delete all payment schedules first
+                var scheduleSpec = new PaymentScheduleSpecification();
+                scheduleSpec.ApplyPlanFilter(planId);
+                var schedules = await _unitOfWork.Repository<PaymentSchedule>().ListAsync(scheduleSpec);
+                
+                foreach (var schedule in schedules)
+                {
+                    _unitOfWork.Repository<PaymentSchedule>().Remove(schedule);
+                }
+                await _unitOfWork.SaveChangesAsync();
+
+                // Delete the savings plan
+                _unitOfWork.Repository<SavingsPlan>().Remove(plan);
+                await _unitOfWork.SaveChangesAsync();
+
+                await _unitOfWork.CommitTransactionAsync();
+                _logger.LogInformation("Successfully deleted savings plan {PlanId} and all associated schedules", planId);
+            }
+            catch (Exception ex)
+            {
+                await _unitOfWork.RollbackTransactionAsync();
+                _logger.LogError(ex, "Failed to delete savings plan {PlanId}", planId);
+                throw new InvalidOperationException("Failed to delete savings plan. Please try again or contact support if the issue persists.", ex);
+            }
         }
     }
 

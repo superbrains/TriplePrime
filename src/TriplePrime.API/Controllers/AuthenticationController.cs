@@ -11,6 +11,7 @@ using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using System.ComponentModel.DataAnnotations;
+using System.Linq;
 
 namespace TriplePrime.API.Controllers
 {
@@ -29,6 +30,40 @@ namespace TriplePrime.API.Controllers
             _logger = logger;
         }
 
+        private string GetUserFriendlyErrorMessage(string error)
+        {
+            // Map common ASP.NET Identity error messages to user-friendly messages
+            if (error.Contains("DuplicateUserName") || error.Contains("DuplicateEmail"))
+                return "An account with this email already exists.";
+            
+            if (error.Contains("PasswordTooShort"))
+                return "Password must be at least 8 characters long.";
+            
+            if (error.Contains("PasswordRequiresNonAlphanumeric"))
+                return "Password must contain at least one special character.";
+            
+            if (error.Contains("PasswordRequiresDigit"))
+                return "Password must contain at least one number.";
+            
+            if (error.Contains("PasswordRequiresUpper"))
+                return "Password must contain at least one uppercase letter.";
+            
+            if (error.Contains("PasswordRequiresLower"))
+                return "Password must contain at least one lowercase letter.";
+            
+            if (error.Contains("InvalidEmail"))
+                return "Please enter a valid email address.";
+            
+            if (error.Contains("UserNotFound"))
+                return "Account not found. Please check your credentials.";
+            
+            if (error.Contains("PasswordMismatch"))
+                return "Incorrect password. Please try again.";
+
+            // Default message for unknown errors
+            return "An error occurred. Please try again or contact support if the issue persists.";
+        }
+
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequest request)
         {
@@ -37,13 +72,14 @@ namespace TriplePrime.API.Controllers
                 var result = await _authService.LoginAsync(request.Email, request.Password);
                 if (!result.Success)
                 {
-                    return HandleResponse(ApiResponse.ErrorResponse(result.ErrorMessage));
+                    return HandleResponse(ApiResponse.ErrorResponse(GetUserFriendlyErrorMessage(result.ErrorMessage)));
                 }
                 return HandleResponse(ApiResponse<AuthenticationResult>.SuccessResponse(result));
             }
             catch (System.Exception ex)
             {
-                return HandleException(ex);
+                _logger.LogError(ex, "Login failed for user {Email}", request.Email);
+                return HandleResponse(ApiResponse.ErrorResponse("Unable to process login request. Please try again later."));
             }
         }
 
@@ -63,7 +99,6 @@ namespace TriplePrime.API.Controllers
                     IsActive = true
                 };
 
-                // Generate a random password if none is provided
                 string password = request.Password;
                 if (string.IsNullOrEmpty(password))
                 {
@@ -73,10 +108,14 @@ namespace TriplePrime.API.Controllers
                 var result = await _authService.RegisterAsync(user, password, request.ReferralCode);
                 if (!result.Success)
                 {
-                    return HandleResponse(ApiResponse.ErrorResponse(result.ErrorMessage));
+                    var errorMessages = result.ErrorMessage.Split(',')
+                        .Select(error => GetUserFriendlyErrorMessage(error.Trim()))
+                        .Distinct()
+                        .ToList();
+
+                    return HandleResponse(ApiResponse.ErrorResponse(string.Join(" ", errorMessages)));
                 }
 
-                // Add the generated password to the response if one was generated
                 var response = new
                 {
                     result.Success,
@@ -88,7 +127,8 @@ namespace TriplePrime.API.Controllers
             }
             catch (System.Exception ex)
             {
-                return HandleException(ex);
+                _logger.LogError(ex, "Registration failed for email: {Email}", request.Email);
+                return HandleResponse(ApiResponse.ErrorResponse("Unable to complete registration. Please try again later."));
             }
         }
 
@@ -232,7 +272,7 @@ namespace TriplePrime.API.Controllers
             try
             {
                 await _authService.DeleteUserAsync(userId);
-                return HandleResponse(ApiResponse.SuccessResponse("User deleted successfully"));
+                return HandleResponse(ApiResponse.SuccessResponse("User has been successfully deleted."));
             }
             catch (ArgumentException ex)
             {
@@ -240,7 +280,8 @@ namespace TriplePrime.API.Controllers
             }
             catch (System.Exception ex)
             {
-                return HandleException(ex);
+                _logger.LogError(ex, "Failed to delete user {UserId}", userId);
+                return HandleResponse(ApiResponse.ErrorResponse("Unable to delete user. Please ensure there are no active plans or pending transactions."));
             }
         }
 
@@ -259,7 +300,8 @@ namespace TriplePrime.API.Controllers
             }
             catch (System.Exception ex)
             {
-                return HandleException(ex);
+                _logger.LogError(ex, "Failed to change status for user {UserId} to {Status}", userId, request.Status);
+                return HandleResponse(ApiResponse.ErrorResponse("Unable to update user status. Please try again later."));
             }
         }
     }

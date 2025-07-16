@@ -2,6 +2,7 @@ using System;
 using System.Linq.Expressions;
 using TriplePrime.Data.Entities;
 using TriplePrime.Data.Interfaces;
+using TriplePrime.Data.Repositories;
 
 namespace TriplePrime.Data.Specifications
 {
@@ -75,6 +76,12 @@ namespace TriplePrime.Data.Specifications
         {
             var scheduleFilter = (Expression<Func<PaymentSchedule, bool>>)(ps => ps.Id == scheduleId);
             _criteria = _criteria == null ? scheduleFilter : CombineCriteria(_criteria, scheduleFilter);
+        }
+
+        public void ApplyPlanFilter(int planId)
+        {
+            var planFilter = (Expression<Func<PaymentSchedule, bool>>)(ps => ps.SavingsPlanId == planId);
+            _criteria = _criteria == null ? planFilter : CombineCriteria(_criteria, planFilter);
         }
 
         public void ApplyPaging(int skip, int take)
