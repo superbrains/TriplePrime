@@ -137,6 +137,7 @@ builder.Services.AddHttpClient();
 
 // Add background services
 builder.Services.AddHostedService<PaymentReminderService>();
+builder.Services.AddHostedService<PaymentAutoDebitService>();
 
 var app = builder.Build();
 

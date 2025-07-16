@@ -51,6 +51,13 @@ namespace TriplePrime.Data.Specifications
             AddCriteria(p => p.StartDate >= startDate && p.StartDate <= endDate);
         }
 
+        public void ApplyLastPaymentDateFilter(DateTime dateUtc)
+        {
+            var start = dateUtc.Date;
+            var end = start.AddDays(1);
+            AddCriteria(p => p.LastPaymentDate != null && p.LastPaymentDate >= start && p.LastPaymentDate < end);
+        }
+
         public void ApplyPaymentReferenceFilter(string reference)
         {
             AddCriteria(p => p.PaymentSchedules.Any(ps => ps.PaymentReference == reference));
