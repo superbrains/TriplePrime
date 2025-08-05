@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Channels;
@@ -7,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
+
 using TriplePrime.Data.Models;
 using TriplePrime.Data.Entities;
 using TriplePrime.Data.Interfaces;
@@ -73,6 +76,7 @@ namespace TriplePrime.Data.Services
                 var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
                 var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
                 var emailService = scope.ServiceProvider.GetRequiredService<IEmailService>();
+                var pushNotificationService = scope.ServiceProvider.GetRequiredService<IPushNotificationService>();
                 var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
 
                 var user = await userManager.FindByIdAsync(message.UserId);
@@ -124,11 +128,58 @@ namespace TriplePrime.Data.Services
                     emailModel
                 );
 
-                _logger.LogInformation("Payment confirmation email sent to {Email} for plan {PlanId}", user.Email, message.PlanId);
+                // Send push notification
+                await SendPaymentConfirmationPushNotification(
+                    pushNotificationService,
+                    user,
+                    message.AmountPaid,
+                    message.PaymentReference,
+                    foodPack.Name
+                );
+
+                _logger.LogInformation("Payment confirmation sent (email + push) to {Email} for plan {PlanId}", user.Email, message.PlanId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to process payment confirmation email for plan {PlanId}", message.PlanId);
+                _logger.LogError(ex, "Failed to process payment confirmation for plan {PlanId}", message.PlanId);
+            }
+        }
+
+        private async Task SendPaymentConfirmationPushNotification(
+            IPushNotificationService pushNotificationService,
+            ApplicationUser user,
+            decimal amount,
+            string paymentReference,
+            string foodPackName)
+        {
+            try
+            {
+                if (user?.DeviceToken == null)
+                {
+                    _logger.LogInformation("No device token found for user {UserId}. Skipping push notification.", user?.Id);
+                    return;
+                }
+
+                var title = "Payment Confirmed - TriplePrime";
+                var body = $"Payment successful! ₦{amount:N0} received for your {foodPackName} savings plan. Ref: {paymentReference}";
+                
+                var data = new Dictionary<string, string>
+                {
+                    ["type"] = "payment_confirmation",
+                    ["userId"] = user.Id,
+                    ["amount"] = amount.ToString(),
+                    ["paymentReference"] = paymentReference,
+                    ["foodPackName"] = foodPackName
+                };
+
+                var tokens = new List<string> { user.DeviceToken };
+                await pushNotificationService.SendNotificationAsync(tokens, title, body, data);
+
+                _logger.LogInformation("Payment confirmation push notification sent to user {UserId}", user.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send payment confirmation push notification to user {UserId}", user?.Id);
             }
         }
     }

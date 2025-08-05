@@ -3,6 +3,7 @@ using TriplePrime.API.Models;
 using TriplePrime.Data.Interfaces;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TriplePrime.API.Services;
 
 namespace TriplePrime.API.Controllers
 {
@@ -11,12 +12,17 @@ namespace TriplePrime.API.Controllers
     public class ContactController : ControllerBase
     {
         private readonly IEmailService _emailService;
+        private readonly NotificationService _notificationService;
         private readonly ILogger<ContactController> _logger;
         private const string CONTACT_EMAIL = "info@tripleprime.com.ng";
 
-        public ContactController(IEmailService emailService, ILogger<ContactController> logger)
+        public ContactController(
+            IEmailService emailService, 
+            NotificationService notificationService,
+            ILogger<ContactController> logger)
         {
             _emailService = emailService;
+            _notificationService = notificationService;
             _logger = logger;
         }
 
@@ -41,7 +47,7 @@ namespace TriplePrime.API.Controllers
                     emailBody
                 );
 
-                // Send confirmation email to the user
+                // Send confirmation email and push notification to the user
                 var confirmationBody = $@"
                     <h2>Thank you for contacting TriplePrime</h2>
                     <p>Dear {message.Name},</p>
@@ -53,10 +59,12 @@ namespace TriplePrime.API.Controllers
                     <p>Best regards,<br>TriplePrime Team</p>
                 ";
 
-                await _emailService.SendEmailAsync(
+                await _notificationService.SendEmailAndPushNotificationAsync(
                     message.Email,
                     "Thank you for contacting TriplePrime",
-                    confirmationBody
+                    confirmationBody,
+                    "Message Received",
+                    "Thank you for contacting TriplePrime. We'll get back to you soon!"
                 );
 
                 return Ok(new { message = "Message sent successfully" });

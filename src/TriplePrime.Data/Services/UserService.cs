@@ -132,6 +132,34 @@ namespace TriplePrime.Data.Services
             spec.ApplySearchFilter(searchTerm);
             return await _unitOfWork.Repository<ApplicationUser>().ListAsync(spec);
         }
+
+        public async Task<bool> UpdateDeviceTokenAsync(string userId, string deviceToken)
+        {
+            try
+            {
+                var user = await GetUserByIdAsync(userId);
+                if (user == null)
+                {
+                    return false;
+                }
+
+                user.DeviceToken = deviceToken;
+                user.UpdatedAt = DateTime.UtcNow;
+
+                var result = await _userManager.UpdateAsync(user);
+                if (result.Succeeded)
+                {
+                    await _unitOfWork.SaveChangesAsync();
+                    return true;
+                }
+
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
     }
 }
 

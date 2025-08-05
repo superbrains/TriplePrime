@@ -17,5 +17,6 @@ namespace TriplePrime.Data.Interfaces
         Task<bool> AddDeliveryAddressAsync(string userId, DeliveryAddress address);
         Task<bool> RemoveDeliveryAddressAsync(string userId, int addressId);
         Task<IReadOnlyList<DeliveryAddress>> GetUserDeliveryAddressesAsync(string userId);
+        Task<bool> UpdateDeviceTokenAsync(string userId, string deviceToken);
     }
 } 

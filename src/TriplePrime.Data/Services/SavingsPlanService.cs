@@ -396,6 +396,7 @@ namespace TriplePrime.Data.Services
             var plansWithDetails = plans.Select(plan => new SavingsPlanWithUserDetails
             {
                 Id = plan.Id,
+                UserId = plan.UserId,
                 UserFullName = $"{plan.User.FirstName} {plan.User.LastName}",
                 UserPhoneNumber = plan.User.PhoneNumber,
                 EmailAddress = plan.User.Email,
@@ -431,6 +432,7 @@ namespace TriplePrime.Data.Services
             return new SavingsPlanWithUserDetails
             {
                 Id = plan.Id,
+                UserId = plan.UserId,
                 UserFullName = $"{plan.User.FirstName} {plan.User.LastName}",
                 UserPhoneNumber = plan.User.PhoneNumber,
                 FoodPackName = plan.FoodPack.Name,
