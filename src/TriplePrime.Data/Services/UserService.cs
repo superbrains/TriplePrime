@@ -64,6 +64,20 @@ namespace TriplePrime.Data.Services
                 throw new ArgumentException($"User with ID {userId} not found");
             }
 
+            // Check if email is being changed
+            if (!string.IsNullOrEmpty(profile.Email) && user.Email != profile.Email)
+            {
+                var existingUser = await _userManager.FindByEmailAsync(profile.Email);
+                if (existingUser != null)
+                {
+                    throw new ArgumentException("Email address is already in use");
+                }
+                user.Email = profile.Email;
+                user.UserName = profile.Email;  // Since we use email as username
+                user.NormalizedEmail = profile.Email.ToUpperInvariant();
+                user.NormalizedUserName = profile.Email.ToUpperInvariant();
+            }
+
             user.FirstName = profile.FirstName;
             user.LastName = profile.LastName;
             user.PhoneNumber = profile.PhoneNumber;
