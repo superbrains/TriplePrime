@@ -24,6 +24,10 @@ namespace TriplePrime.Data.Entities
 
         public DateTime? UpdatedAt { get; set; }
 
+        // Device token for push notifications
+        [MaxLength(500)]
+        public string DeviceToken { get; set; }
+
         // Preferences - Made nullable
         public NotificationPreferences NotificationPreferences { get; set; }
         public DeliveryPreferences DeliveryPreferences { get; set; }

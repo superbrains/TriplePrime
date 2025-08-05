@@ -17,6 +17,7 @@ using System.Text;
 using System.IO;
 using TriplePrime.Data.Models;
 using Microsoft.AspNetCore.Identity;
+using TriplePrime.API.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -110,6 +111,13 @@ builder.Services.AddScoped<UserService>();
 
 // Configure and register EmailService
 builder.Services.AddScoped<IEmailService, EmailService>();
+
+// Register PushNotificationService
+builder.Services.AddScoped<IPushNotificationService, PushNotificationService>();
+builder.Services.AddScoped<PushNotificationService>();
+
+// Register NotificationService
+builder.Services.AddScoped<NotificationService>();
 
 // Register PaymentEmailService as singleton and hosted service
 builder.Services.AddSingleton<PaymentEmailService>();

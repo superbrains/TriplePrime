@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using TriplePrime.Data.Entities;
 using TriplePrime.Data.Models;
 using TriplePrime.Data.Services;
+using TriplePrime.API.Models;
 
 namespace TriplePrime.API.Controllers
 {
@@ -146,6 +147,20 @@ namespace TriplePrime.API.Controllers
             {
                 var users = await _userService.SearchUsersAsync(searchTerm);
                 return HandleResponse(ApiResponse<IEnumerable<ApplicationUser>>.SuccessResponse(users));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpPut("device-token/{id}")]
+        public async Task<IActionResult> UpdateDeviceToken(string id, [FromBody] UpdateDeviceTokenRequest request)
+        {
+            try
+            {
+                await _userService.UpdateDeviceTokenAsync(id, request.DeviceToken);
+                return HandleResponse(ApiResponse.SuccessResponse("Device token updated successfully"));
             }
             catch (System.Exception ex)
             {
