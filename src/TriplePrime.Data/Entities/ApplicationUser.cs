@@ -26,7 +26,7 @@ namespace TriplePrime.Data.Entities
 
         // Device token for push notifications
         [MaxLength(500)]
-        public string DeviceToken { get; set; }
+        public string DeviceToken { get; set; } = "";
 
         // Preferences - Made nullable
         public NotificationPreferences NotificationPreferences { get; set; }
