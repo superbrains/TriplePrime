@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -61,13 +62,85 @@ namespace TriplePrime.API.Controllers
         {
             try
             {
+                if (string.IsNullOrWhiteSpace(id))
+                {
+                    return BadRequest(ApiResponse.ErrorResponse("User ID is required"));
+                }
+
+                if (profile == null)
+                {
+                    return BadRequest(ApiResponse.ErrorResponse("Profile data is required"));
+                }
+
+                if (string.IsNullOrWhiteSpace(profile.FirstName))
+                {
+                    return BadRequest(ApiResponse.ErrorResponse("First name is required"));
+                }
+
+                if (string.IsNullOrWhiteSpace(profile.LastName))
+                {
+                    return BadRequest(ApiResponse.ErrorResponse("Last name is required"));
+                }
+
+                if (!string.IsNullOrWhiteSpace(profile.Email))
+                {
+                    if (!IsValidEmail(profile.Email))
+                    {
+                        return BadRequest(ApiResponse.ErrorResponse("Please provide a valid email address"));
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(profile.PhoneNumber))
+                {
+                    if (!IsValidPhoneNumber(profile.PhoneNumber))
+                    {
+                        return BadRequest(ApiResponse.ErrorResponse("Please provide a valid phone number"));
+                    }
+                }
+
                 await _userService.UpdateUserProfileAsync(id, profile);
-                return HandleResponse(ApiResponse.SuccessResponse("User profile updated successfully"));
+                return Ok(ApiResponse.SuccessResponse("User profile updated successfully"));
+            }
+            catch (ArgumentException ex)
+            {
+                if (ex.Message.Contains("not found"))
+                {
+                    return NotFound(ApiResponse.ErrorResponse("User not found"));
+                }
+                if (ex.Message.Contains("already in use"))
+                {
+                    return BadRequest(ApiResponse.ErrorResponse("Email address is already in use by another account"));
+                }
+                return BadRequest(ApiResponse.ErrorResponse(ex.Message));
             }
             catch (System.Exception ex)
             {
-                return HandleException(ex);
+                var errorMessage = "An error occurred while updating the profile. Please try again later.";
+                System.Diagnostics.Debug.WriteLine($"Profile update error: {ex.Message}");
+                return StatusCode(500, ApiResponse.ErrorResponse(errorMessage));
             }
+        }
+
+        private bool IsValidEmail(string email)
+        {
+            try
+            {
+                var addr = new System.Net.Mail.MailAddress(email);
+                return addr.Address == email;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool IsValidPhoneNumber(string phoneNumber)
+        {
+            if (string.IsNullOrWhiteSpace(phoneNumber))
+                return false;
+            
+            var digitsOnly = System.Text.RegularExpressions.Regex.Replace(phoneNumber, @"[^\d]", "");
+            return digitsOnly.Length >= 10 && digitsOnly.Length <= 15;
         }
 
         [HttpPut("preferences/{id}")]
@@ -165,6 +238,67 @@ namespace TriplePrime.API.Controllers
             catch (System.Exception ex)
             {
                 return HandleException(ex);
+            }
+        }
+
+        [HttpPut("change-password/{id}")]
+        public async Task<IActionResult> ChangePassword(string id, [FromBody] TriplePrime.Data.Models.ChangePasswordRequest request)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(id))
+                {
+                    return BadRequest(ApiResponse.ErrorResponse("User ID is required"));
+                }
+
+                if (request == null)
+                {
+                    return BadRequest(ApiResponse.ErrorResponse("Password change request data is required"));
+                }
+
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    
+                    return BadRequest(ApiResponse.ErrorResponse(string.Join(" ", errors)));
+                }
+
+                if (request.NewPassword != request.ConfirmPassword)
+                {
+                    return BadRequest(ApiResponse.ErrorResponse("New password and confirmation password do not match"));
+                }
+
+                var result = await _userService.ChangePasswordAsync(id, request);
+                
+                if (!result.Success)
+                {
+                    if (result.Error.Contains("not found"))
+                    {
+                        return NotFound(ApiResponse.ErrorResponse(result.Error));
+                    }
+                    
+                    if (result.Error.Contains("incorrect") || result.Error.Contains("different"))
+                    {
+                        return BadRequest(ApiResponse.ErrorResponse(result.Error));
+                    }
+                    
+                    return BadRequest(ApiResponse.ErrorResponse(result.Error));
+                }
+
+                return Ok(ApiResponse.SuccessResponse(result.Message));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ApiResponse.ErrorResponse(ex.Message));
+            }
+            catch (System.Exception ex)
+            {
+                var errorMessage = "An error occurred while changing the password. Please try again later.";
+                System.Diagnostics.Debug.WriteLine($"Password change error: {ex.Message}");
+                return StatusCode(500, ApiResponse.ErrorResponse(errorMessage));
             }
         }
     }

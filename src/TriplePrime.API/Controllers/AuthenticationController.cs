@@ -96,7 +96,8 @@ namespace TriplePrime.API.Controllers
                     LastName = request.LastName,
                     PhoneNumber = request.PhoneNumber,
                     Address = request.Address,
-                    IsActive = true
+                    IsActive = true,
+                    DeviceToken = "" // Device token can be set later if needed
                 };
 
                 string password = request.Password;
@@ -199,20 +200,42 @@ namespace TriplePrime.API.Controllers
 
         [HttpPost("change-password")]
         [Authorize]
-        public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
+        public async Task<IActionResult> ChangePassword([FromBody] TriplePrime.Data.Models.ChangePasswordRequest request)
         {
             try
             {
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    
+                    return HandleResponse(ApiResponse.ErrorResponse(string.Join(" ", errors)));
+                }
+
+                if (request.NewPassword != request.ConfirmPassword)
+                {
+                    return HandleResponse(ApiResponse.ErrorResponse("New password and confirmation password do not match"));
+                }
+
                 var userId = User.FindFirst("sub")?.Value;
+                if (string.IsNullOrEmpty(userId))
+                {
+                    return HandleResponse(ApiResponse.ErrorResponse("User not authenticated"));
+                }
+
                 var result = await _authService.ChangePasswordAsync(userId, request.CurrentPassword, request.NewPassword);
                 if (!result.Success)
                 {
-                    return HandleResponse(ApiResponse.ErrorResponse(result.ErrorMessage));
+                    var errorMessage = GetUserFriendlyErrorMessage(result.ErrorMessage);
+                    return HandleResponse(ApiResponse.ErrorResponse(errorMessage));
                 }
                 return HandleResponse(ApiResponse.SuccessResponse("Password changed successfully"));
             }
             catch (System.Exception ex)
             {
+                _logger.LogError(ex, "Error changing password");
                 return HandleException(ex);
             }
         }
@@ -344,11 +367,6 @@ namespace TriplePrime.API.Controllers
         public string NewPassword { get; set; }
     }
 
-    public class ChangePasswordRequest
-    {
-        public string CurrentPassword { get; set; }
-        public string NewPassword { get; set; }
-    }
 
     public class ChangeStatusRequest
     {
