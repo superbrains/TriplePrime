@@ -7,6 +7,7 @@ using TriplePrime.Data.Entities;
 using TriplePrime.Data.Interfaces;
 using TriplePrime.Data.Models;
 using TriplePrime.Data.Repositories;
+using TriplePrime.Data.Specifications;
 
 namespace TriplePrime.Data.Services
 {
@@ -288,6 +289,178 @@ namespace TriplePrime.Data.Services
                 { 
                     Success = false, 
                     Error = "An error occurred while changing the password. Please try again later." 
+                };
+            }
+        }
+
+        public async Task<ServiceResponse> DeleteUserAsync(string userId)
+        {
+            if (string.IsNullOrWhiteSpace(userId))
+            {
+                return new ServiceResponse 
+                { 
+                    Success = false, 
+                    Message = "User ID is required" 
+                };
+            }
+
+            try
+            {
+                var user = await _userManager.FindByIdAsync(userId);
+                if (user == null)
+                {
+                    return new ServiceResponse 
+                    { 
+                        Success = false, 
+                        Message = "User not found" 
+                    };
+                }
+
+                // Check for ongoing savings plans
+                var savingsPlansSpec = new SavingsPlanSpecification();
+                savingsPlansSpec.ApplyUserFilter(userId);
+                var savingsPlans = await _unitOfWork.Repository<SavingsPlan>().ListAsync(savingsPlansSpec);
+                
+                var ongoingPlans = savingsPlans.Where(sp => sp.Status == "Active").ToList();
+                if (ongoingPlans.Any())
+                {
+                    return new ServiceResponse 
+                    { 
+                        Success = false, 
+                        Message = "Cannot delete user account with ongoing savings plans. Please complete or cancel all active plans first." 
+                    };
+                }
+
+                await _unitOfWork.BeginTransactionAsync();
+                try
+                {
+                    // Delete related data in correct order (respect foreign key constraints)
+                    
+                    // 1. Delete notifications
+                    var notificationSpec = new NotificationSpecification();
+                    notificationSpec.ApplyUserFilter(userId);
+                    var notifications = await _unitOfWork.Repository<Notification>().ListAsync(notificationSpec);
+                    foreach (var notification in notifications)
+                    {
+                        _unitOfWork.Repository<Notification>().Remove(notification);
+                    }
+
+                    // 2. Delete log entries (direct repository query)
+                    var logEntries = await _unitOfWork.Repository<LogEntry>().GetAllAsync();
+                    var userLogEntries = logEntries.Where(le => le.UserId == userId).ToList();
+                    foreach (var logEntry in userLogEntries)
+                    {
+                        _unitOfWork.Repository<LogEntry>().Remove(logEntry);
+                    }
+
+                    // 3. Delete reports (direct repository query)
+                    var reports = await _unitOfWork.Repository<Report>().GetAllAsync();
+                    var userReports = reports.Where(r => r.UserId == userId).ToList();
+                    foreach (var report in userReports)
+                    {
+                        _unitOfWork.Repository<Report>().Remove(report);
+                    }
+
+                    // 4. Delete payment schedules (via savings plans)
+                    foreach (var plan in savingsPlans)
+                    {
+                        var scheduleSpec = new PaymentScheduleSpecification();
+                        scheduleSpec.ApplyPlanFilter(plan.Id);
+                        var schedules = await _unitOfWork.Repository<PaymentSchedule>().ListAsync(scheduleSpec);
+                        foreach (var schedule in schedules)
+                        {
+                            _unitOfWork.Repository<PaymentSchedule>().Remove(schedule);
+                        }
+                    }
+
+                    // 5. Delete payments
+                    var paymentSpec = new PaymentSpecification();
+                    paymentSpec.ApplyUserFilter(userId);
+                    var payments = await _unitOfWork.Repository<Payment>().ListAsync(paymentSpec);
+                    foreach (var payment in payments)
+                    {
+                        _unitOfWork.Repository<Payment>().Remove(payment);
+                    }
+
+                    // 6. Delete food pack purchases
+                    var foodPackPurchaseSpec = new FoodPackPurchaseSpecification();
+                    foodPackPurchaseSpec.ApplyUserFilter(userId);
+                    var foodPackPurchases = await _unitOfWork.Repository<FoodPackPurchase>().ListAsync(foodPackPurchaseSpec);
+                    foreach (var purchase in foodPackPurchases)
+                    {
+                        _unitOfWork.Repository<FoodPackPurchase>().Remove(purchase);
+                    }
+
+                    // 7. Delete payment methods
+                    var paymentMethodSpec = new PaymentMethodSpecification();
+                    paymentMethodSpec.ApplyUserFilter(userId);
+                    var paymentMethods = await _unitOfWork.Repository<PaymentMethod>().ListAsync(paymentMethodSpec);
+                    foreach (var paymentMethod in paymentMethods)
+                    {
+                        _unitOfWork.Repository<PaymentMethod>().Remove(paymentMethod);
+                    }
+
+                    // 8. Delete delivery addresses (direct repository query)
+                    var deliveryAddresses = await _unitOfWork.Repository<DeliveryAddress>().GetAllAsync();
+                    var userDeliveryAddresses = deliveryAddresses.Where(da => da.UserId == userId).ToList();
+                    foreach (var address in userDeliveryAddresses)
+                    {
+                        _unitOfWork.Repository<DeliveryAddress>().Remove(address);
+                    }
+
+                    // 9. Delete deliveries (direct repository query)
+                    var deliveries = await _unitOfWork.Repository<Delivery>().GetAllAsync();
+                    var userDeliveries = deliveries.Where(d => d.UserId == userId).ToList();
+                    foreach (var delivery in userDeliveries)
+                    {
+                        _unitOfWork.Repository<Delivery>().Remove(delivery);
+                    }
+
+                    // 10. Delete savings plans (now that payment schedules are deleted)
+                    foreach (var plan in savingsPlans)
+                    {
+                        _unitOfWork.Repository<SavingsPlan>().Remove(plan);
+                    }
+
+                    // 11. Delete referrals where user is the referred user
+                    var referralSpec = new ReferralSpecification(userId, false, true);
+                    var referrals = await _unitOfWork.Repository<Referral>().ListAsync(referralSpec);
+                    foreach (var referral in referrals)
+                    {
+                        _unitOfWork.Repository<Referral>().Remove(referral);
+                    }
+
+                    await _unitOfWork.SaveChangesAsync();
+
+                    // 12. Finally delete the user via UserManager (handles Identity tables)
+                    var deleteResult = await _userManager.DeleteAsync(user);
+                    if (!deleteResult.Succeeded)
+                    {
+                        var errors = string.Join(", ", deleteResult.Errors.Select(e => e.Description));
+                        throw new InvalidOperationException($"Failed to delete user: {errors}");
+                    }
+
+                    await _unitOfWork.SaveChangesAsync();
+                    await _unitOfWork.CommitTransactionAsync();
+
+                    return new ServiceResponse 
+                    { 
+                        Success = true, 
+                        Message = "User account deleted successfully" 
+                    };
+                }
+                catch
+                {
+                    await _unitOfWork.RollbackTransactionAsync();
+                    throw;
+                }
+            }
+            catch (Exception ex)
+            {
+                return new ServiceResponse 
+                { 
+                    Success = false, 
+                    Message = "An error occurred while deleting the user account. Please try again later." 
                 };
             }
         }
