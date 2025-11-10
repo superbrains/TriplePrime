@@ -301,5 +301,40 @@ namespace TriplePrime.API.Controllers
                 return StatusCode(500, ApiResponse.ErrorResponse(errorMessage));
             }
         }
+
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteUser(string id)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(id))
+                {
+                    return BadRequest(ApiResponse.ErrorResponse("User ID is required"));
+                }
+
+                var result = await _userService.DeleteUserAsync(id);
+                
+                if (!result.Success)
+                {
+                    if (result.Message.Contains("not found"))
+                    {
+                        return NotFound(ApiResponse.ErrorResponse(result.Message));
+                    }
+                    
+                    if (result.Message.Contains("ongoing savings plans"))
+                    {
+                        return BadRequest(ApiResponse.ErrorResponse(result.Message));
+                    }
+                    
+                    return BadRequest(ApiResponse.ErrorResponse(result.Message));
+                }
+
+                return Ok(ApiResponse.SuccessResponse(result.Message));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
     }
 } 

@@ -457,6 +457,41 @@ namespace TriplePrime.API.Controllers
             }
         }
 
+        [HttpPost("{id}/confirm-mobile-payment")]
+        public async Task<IActionResult> ConfirmMobilePayment(int id, [FromBody] ConfirmMobilePaymentRequest request)
+        {
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized();
+
+            try
+            {
+                var result = await _savingsPlanService.ConfirmMobilePaymentAsync(
+                    id,
+                    userId,
+                    request.ScheduleId,
+                    request.Amount,
+                    request.PaymentReference,
+                    request.PaymentMethod
+                );
+
+                return Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error confirming mobile payment for plan {PlanId}", id);
+                return StatusCode(500, new { message = "Error confirming payment", error = ex.Message });
+            }
+        }
+
         public class ManualPaymentRequest
         {
             public int ScheduleId { get; set; }
@@ -551,5 +586,13 @@ namespace TriplePrime.API.Controllers
     public class RevertPaymentRequest
     {
         public int ScheduleId { get; set; }
+    }
+
+    public class ConfirmMobilePaymentRequest
+    {
+        public int ScheduleId { get; set; }
+        public string PaymentReference { get; set; }
+        public decimal Amount { get; set; }
+        public string PaymentMethod { get; set; }
     }
 } 

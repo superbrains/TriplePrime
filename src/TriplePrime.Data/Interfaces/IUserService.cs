@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using TriplePrime.Data.Entities;
+using TriplePrime.Data.Models;
 
 namespace TriplePrime.Data.Interfaces
 {
@@ -9,7 +10,7 @@ namespace TriplePrime.Data.Interfaces
         Task<ApplicationUser> GetUserByIdAsync(string userId);
         Task<IReadOnlyList<ApplicationUser>> GetAllUsersAsync();
         Task<ApplicationUser> UpdateUserAsync(ApplicationUser user);
-        Task<bool> DeleteUserAsync(string userId);
+        Task<ServiceResponse> DeleteUserAsync(string userId);
         Task<bool> UpdateUserProfileAsync(string userId, string firstName, string lastName, string phoneNumber);
         Task<bool> UpdateUserAddressAsync(string userId, string address, string city, string state, string country, string postalCode);
         Task<bool> UpdateNotificationPreferencesAsync(string userId, bool emailNotifications, bool smsNotifications, bool pushNotifications);

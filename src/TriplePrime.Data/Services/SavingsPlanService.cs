@@ -587,6 +587,75 @@ namespace TriplePrime.Data.Services
             return dueSchedules.Select(s => s.SavingsPlan.UserId).Distinct().Count();
         }
 
+        public async Task<SavingsPlan> ConfirmMobilePaymentAsync(
+            int planId,
+            string userId,
+            int scheduleId,
+            decimal amount,
+            string paymentReference,
+            string paymentMethod)
+        {
+            await _unitOfWork.BeginTransactionAsync();
+            try
+            {
+                var plan = await GetSavingsPlanByIdAsync(planId);
+                if (plan == null || plan.UserId != userId)
+                {
+                    throw new ArgumentException("Invalid savings plan");
+                }
+
+                // Find and validate the payment schedule
+                var schedule = plan.PaymentSchedules.FirstOrDefault(s => s.Id == scheduleId);
+                if (schedule == null)
+                {
+                    throw new ArgumentException("Invalid payment schedule");
+                }
+
+                if (schedule.Status == "Paid")
+                {
+                    throw new InvalidOperationException("This schedule has already been paid");
+                }
+
+                if (amount != schedule.Amount)
+                {
+                    throw new ArgumentException("Payment amount does not match schedule amount");
+                }
+
+                // Update the payment schedule
+                schedule.Status = "Paid";
+                schedule.PaymentReference = paymentReference;
+                schedule.PaidAt = DateTime.UtcNow;
+                schedule.UpdatedAt = DateTime.UtcNow;
+                schedule.UpdatedBy = userId;
+
+                // Update plan payment details
+                plan.AmountPaid += amount;
+                plan.LastPaymentDate = DateTime.UtcNow;
+                plan.UpdatedAt = DateTime.UtcNow;
+                plan.UpdatedBy = userId;
+
+                // Check if plan is completed
+                if (plan.AmountPaid >= plan.TotalAmount)
+                {
+                    plan.Status = "Completed";
+                }
+
+                // Queue payment confirmation email
+                 QueuePaymentConfirmationEmail(plan, schedule, paymentReference);
+
+                _unitOfWork.Repository<SavingsPlan>().Update(plan);
+                await _unitOfWork.SaveChangesAsync();
+                await _unitOfWork.CommitTransactionAsync();
+
+                return plan;
+            }
+            catch
+            {
+                await _unitOfWork.RollbackTransactionAsync();
+                throw;
+            }
+        }
+
         public async Task HandlePaystackWebhookAsync(PaystackWebhookEvent webhookEvent)
         {
             if (webhookEvent?.Data == null || webhookEvent.Event != "charge.success")
