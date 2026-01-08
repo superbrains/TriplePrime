@@ -15,6 +15,7 @@ namespace TriplePrime.Data
 
         public DbSet<FoodPack> FoodPacks { get; set; }
         public DbSet<FoodPackItem> FoodPackItems { get; set; }
+        public DbSet<FoodPackPricing> FoodPackPricings { get; set; }
         public DbSet<FoodPackPurchase> FoodPackPurchases { get; set; }
         public DbSet<SavingsPlan> SavingsPlans { get; set; }
         public DbSet<Payment> Payments { get; set; }
@@ -101,6 +102,21 @@ namespace TriplePrime.Data
                 .WithOne(fpi => fpi.FoodPack)
                 .HasForeignKey(fpi => fpi.FoodPackId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            builder.Entity<FoodPack>()
+                .HasMany(fp => fp.Pricings)
+                .WithOne(fpp => fpp.FoodPack)
+                .HasForeignKey(fpp => fpp.FoodPackId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Configure FoodPackPricing
+            builder.Entity<FoodPackPricing>()
+                .Property(fpp => fpp.InterestRate)
+                .HasColumnType("decimal(5,4)"); // Supports up to 99.99% interest rate
+
+            builder.Entity<FoodPackPricing>()
+                .HasIndex(fpp => new { fpp.FoodPackId, fpp.DurationMonths })
+                .IsUnique(); // One pricing per food pack per duration
 
             // Configure FoodPackPurchase
             builder.Entity<FoodPackPurchase>()

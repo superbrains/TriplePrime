@@ -5,7 +5,9 @@ using System.Threading.Tasks;
 using TriplePrime.Data.Entities;
 using TriplePrime.Data.Interfaces;
 using TriplePrime.Data.Repositories;
+using TriplePrime.Data.Models;
 using System.IO;
+using Microsoft.EntityFrameworkCore;
 
 namespace TriplePrime.Data.Services
 {
@@ -268,6 +270,177 @@ namespace TriplePrime.Data.Services
             }
 
             return updatedPacks;
+        }
+
+        // Pricing Management Methods
+        public async Task<FoodPackPricing> CreatePricingAsync(CreateFoodPackPricingDto request)
+        {
+            // Check if pricing already exists for this food pack and duration
+            var existingPricing = await _unitOfWork.Repository<FoodPackPricing>()
+                .GetEntityWithSpec(new FoodPackPricingSpecification(request.FoodPackId, request.DurationMonths));
+
+            if (existingPricing != null)
+                throw new InvalidOperationException($"Pricing for {request.DurationMonths} month(s) already exists for this food pack");
+
+            var pricing = new FoodPackPricing
+            {
+                FoodPackId = request.FoodPackId,
+                DurationMonths = request.DurationMonths,
+                InterestRate = request.InterestRate,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _unitOfWork.Repository<FoodPackPricing>().AddAsync(pricing);
+            await _unitOfWork.SaveChangesAsync();
+
+            return pricing;
+        }
+
+        public async Task<List<FoodPackPricing>> CreateBulkPricingAsync(BulkCreateFoodPackPricingDto request)
+        {
+            await _unitOfWork.BeginTransactionAsync();
+            try
+            {
+                var foodPack = await _unitOfWork.Repository<FoodPack>().GetByIdAsync(request.FoodPackId);
+                if (foodPack == null)
+                    throw new ArgumentException($"Food pack with ID {request.FoodPackId} not found");
+
+                // Remove existing pricing
+                var existingPricings = await _unitOfWork.Repository<FoodPackPricing>()
+                    .ListAsync(new FoodPackPricingSpecification(request.FoodPackId));
+
+                foreach (var existing in existingPricings)
+                {
+                    _unitOfWork.Repository<FoodPackPricing>().Remove(existing);
+                }
+
+                // Create new pricing tiers
+                var createdPricings = new List<FoodPackPricing>();
+                foreach (var tier in request.PricingTiers)
+                {
+                    var pricing = new FoodPackPricing
+                    {
+                        FoodPackId = request.FoodPackId,
+                        DurationMonths = tier.DurationMonths,
+                        InterestRate = tier.InterestRate,
+                        CreatedAt = DateTime.UtcNow
+                    };
+
+                    await _unitOfWork.Repository<FoodPackPricing>().AddAsync(pricing);
+                    createdPricings.Add(pricing);
+                }
+
+                await _unitOfWork.SaveChangesAsync();
+                await _unitOfWork.CommitTransactionAsync();
+
+                return createdPricings;
+            }
+            catch
+            {
+                await _unitOfWork.RollbackTransactionAsync();
+                throw;
+            }
+        }
+
+        public async Task<FoodPackPricing> UpdatePricingAsync(int pricingId, UpdateFoodPackPricingDto request)
+        {
+            var pricing = await _unitOfWork.Repository<FoodPackPricing>().GetByIdAsync(pricingId);
+            if (pricing == null)
+                throw new ArgumentException($"Pricing with ID {pricingId} not found");
+
+            pricing.InterestRate = request.InterestRate;
+            pricing.UpdatedAt = DateTime.UtcNow;
+
+            _unitOfWork.Repository<FoodPackPricing>().Update(pricing);
+            await _unitOfWork.SaveChangesAsync();
+
+            return pricing;
+        }
+
+        public async Task DeletePricingAsync(int pricingId)
+        {
+            var pricing = await _unitOfWork.Repository<FoodPackPricing>().GetByIdAsync(pricingId);
+            if (pricing == null)
+                throw new ArgumentException($"Pricing with ID {pricingId} not found");
+
+            _unitOfWork.Repository<FoodPackPricing>().Remove(pricing);
+            await _unitOfWork.SaveChangesAsync();
+        }
+
+        public async Task<List<FoodPackPricingDto>> GetPricingsByFoodPackIdAsync(int foodPackId)
+        {
+            var foodPack = await _unitOfWork.Repository<FoodPack>().GetByIdAsync(foodPackId);
+            if (foodPack == null)
+                throw new ArgumentException($"Food pack with ID {foodPackId} not found");
+
+            var pricings = await _unitOfWork.Repository<FoodPackPricing>()
+                .ListAsync(new FoodPackPricingSpecification(foodPackId));
+
+            var basePrice = foodPack.Price;
+
+            return pricings.Select(p => new FoodPackPricingDto
+            {
+                Id = p.Id,
+                FoodPackId = p.FoodPackId,
+                DurationMonths = p.DurationMonths,
+                InterestRate = p.InterestRate,
+                TotalPrice = p.GetTotalPrice(basePrice),
+                DailyPaymentAmount = p.GetDailyPaymentAmount(basePrice),
+                CreatedAt = p.CreatedAt,
+                UpdatedAt = p.UpdatedAt
+            }).OrderBy(p => p.DurationMonths).ToList();
+        }
+
+        public async Task<FoodPackPricingDto> GetPricingByDurationAsync(int foodPackId, int durationMonths)
+        {
+            var foodPack = await _unitOfWork.Repository<FoodPack>().GetByIdAsync(foodPackId);
+            if (foodPack == null)
+                throw new ArgumentException($"Food pack with ID {foodPackId} not found");
+
+            var pricing = await _unitOfWork.Repository<FoodPackPricing>()
+                .GetEntityWithSpec(new FoodPackPricingSpecification(foodPackId, durationMonths));
+
+            if (pricing == null)
+                throw new ArgumentException($"Pricing for {durationMonths} month(s) not found for this food pack");
+
+            var basePrice = foodPack.Price;
+
+            return new FoodPackPricingDto
+            {
+                Id = pricing.Id,
+                FoodPackId = pricing.FoodPackId,
+                DurationMonths = pricing.DurationMonths,
+                InterestRate = pricing.InterestRate,
+                TotalPrice = pricing.GetTotalPrice(basePrice),
+                DailyPaymentAmount = pricing.GetDailyPaymentAmount(basePrice),
+                CreatedAt = pricing.CreatedAt,
+                UpdatedAt = pricing.UpdatedAt
+            };
+        }
+
+        public async Task<FoodPackWithPricingDto> GetFoodPackWithPricingAsync(int foodPackId)
+        {
+            var foodPack = await _unitOfWork.Repository<FoodPack>().GetByIdAsync(foodPackId);
+            if (foodPack == null)
+                throw new ArgumentException($"Food pack with ID {foodPackId} not found");
+
+            var pricings = await GetPricingsByFoodPackIdAsync(foodPackId);
+
+            return new FoodPackWithPricingDto
+            {
+                Id = foodPack.Id,
+                Name = foodPack.Name,
+                Description = foodPack.Description,
+                BasePrice = foodPack.Price,
+                OriginalPrice = foodPack.OriginalPrice,
+                Savings = foodPack.Savings,
+                Available = foodPack.Available,
+                Featured = foodPack.Featured,
+                ImageUrl = GetFullImageUrl(foodPack.ImageUrl),
+                Inventory = foodPack.Inventory,
+                Category = foodPack.Category,
+                Pricings = pricings
+            };
         }
 
         private async Task<string> SaveFoodPackImage(string base64Image)

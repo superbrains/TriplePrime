@@ -36,6 +36,24 @@ namespace TriplePrime.Data.Services
             _roleManager = roleManager;
         }
 
+        public async Task<(decimal totalAmount, decimal interestRate)> CalculatePlanAmountAsync(int foodPackId, int durationMonths)
+        {
+            var foodPack = await _unitOfWork.Repository<FoodPack>().GetByIdAsync(foodPackId);
+            if (foodPack == null)
+                throw new ArgumentException($"Food pack with ID {foodPackId} not found");
+
+            var pricing = await _unitOfWork.Repository<FoodPackPricing>()
+                .GetEntityWithSpec(new FoodPackPricingSpecification(foodPackId, durationMonths));
+
+            if (pricing != null)
+            {
+                return (pricing.GetTotalPrice(foodPack.Price), pricing.InterestRate);
+            }
+
+            // No pricing tier found, return base price with 0% interest
+            return (foodPack.Price, 0);
+        }
+
         private async Task QueuePaymentConfirmationEmail(SavingsPlan plan, PaymentSchedule paidSchedule, string paymentReference)
         {
             try
@@ -75,6 +93,27 @@ namespace TriplePrime.Data.Services
             await _unitOfWork.BeginTransactionAsync();
             try
             {
+                // Apply interest rate to total amount if applicable
+                var foodPack = await _unitOfWork.Repository<FoodPack>().GetByIdAsync(plan.FoodPackId);
+                if (foodPack != null)
+                {
+                    var pricing = await _unitOfWork.Repository<FoodPackPricing>()
+                        .GetEntityWithSpec(new FoodPackPricingSpecification(plan.FoodPackId, plan.Duration));
+
+                    if (pricing != null)
+                    {
+                        // Apply interest rate to base price
+                        plan.TotalAmount = pricing.GetTotalPrice(foodPack.Price);
+                        plan.MonthlyAmount = Math.Round(plan.TotalAmount / plan.Duration, 2);
+                    }
+                    else
+                    {
+                        // No pricing tier found, use base price without interest
+                        plan.TotalAmount = foodPack.Price;
+                        plan.MonthlyAmount = Math.Round(plan.TotalAmount / plan.Duration, 2);
+                    }
+                }
+
                 // Set initial values
                 plan.CreatedAt = DateTime.UtcNow;
                 plan.Status = "Active";

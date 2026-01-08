@@ -160,6 +160,114 @@ namespace TriplePrime.API.Controllers
                 return HandleException(ex);
             }
         }
+
+        // Pricing Management Endpoints
+        [HttpGet("{id}/pricing")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetFoodPackPricing(int id)
+        {
+            try
+            {
+                var pricings = await _foodPackService.GetPricingsByFoodPackIdAsync(id);
+                return HandleResponse(ApiResponse<List<FoodPackPricingDto>>.SuccessResponse(pricings));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpGet("{id}/pricing/{durationMonths}")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetFoodPackPricingByDuration(int id, int durationMonths)
+        {
+            try
+            {
+                var pricing = await _foodPackService.GetPricingByDurationAsync(id, durationMonths);
+                return HandleResponse(ApiResponse<FoodPackPricingDto>.SuccessResponse(pricing));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpGet("{id}/with-pricing")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetFoodPackWithPricing(int id)
+        {
+            try
+            {
+                var foodPackWithPricing = await _foodPackService.GetFoodPackWithPricingAsync(id);
+                return HandleResponse(ApiResponse<FoodPackWithPricingDto>.SuccessResponse(foodPackWithPricing));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpPost("{id}/pricing")]
+        [Authorize]
+        public async Task<IActionResult> CreatePricing(int id, [FromBody] CreateFoodPackPricingDto request)
+        {
+            try
+            {
+                request.FoodPackId = id; // Ensure food pack ID matches route
+                var pricing = await _foodPackService.CreatePricingAsync(request);
+                return HandleResponse(ApiResponse<FoodPackPricing>.SuccessResponse(pricing, "Pricing created successfully"));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpPost("{id}/pricing/bulk")]
+        [Authorize]
+        public async Task<IActionResult> CreateBulkPricing(int id, [FromBody] BulkCreateFoodPackPricingDto request)
+        {
+            try
+            {
+                request.FoodPackId = id; // Ensure food pack ID matches route
+                var pricings = await _foodPackService.CreateBulkPricingAsync(request);
+                return HandleResponse(ApiResponse<List<FoodPackPricing>>.SuccessResponse(pricings, "Pricing tiers created successfully"));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpPut("pricing/{pricingId}")]
+        [Authorize]
+        public async Task<IActionResult> UpdatePricing(int pricingId, [FromBody] UpdateFoodPackPricingDto request)
+        {
+            try
+            {
+                var pricing = await _foodPackService.UpdatePricingAsync(pricingId, request);
+                return HandleResponse(ApiResponse<FoodPackPricing>.SuccessResponse(pricing, "Pricing updated successfully"));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpDelete("pricing/{pricingId}")]
+        [Authorize]
+        public async Task<IActionResult> DeletePricing(int pricingId)
+        {
+            try
+            {
+                await _foodPackService.DeletePricingAsync(pricingId);
+                return HandleResponse(ApiResponse.SuccessResponse("Pricing deleted successfully"));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
     }
 
     public class SearchResult<T>

@@ -33,5 +33,6 @@ namespace TriplePrime.Data.Entities
 
         // Navigation Properties
         public virtual ICollection<FoodPackItem> Items { get; set; } = new List<FoodPackItem>();
+        public virtual ICollection<FoodPackPricing> Pricings { get; set; } = new List<FoodPackPricing>();
     }
 } 
