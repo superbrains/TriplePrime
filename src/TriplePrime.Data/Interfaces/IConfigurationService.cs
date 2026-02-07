@@ -14,5 +14,7 @@ namespace TriplePrime.Data.Interfaces
         Task<bool> ValidateConfigurationAsync(string key, string value);
         Task<string> GetConfigurationValueAsync(string key);
         Task<Dictionary<string, string>> GetAllConfigurationsAsync();
+        Task<TriplePrime.Data.Entities.Configuration> CreateConfigurationAsync(TriplePrime.Data.Entities.Configuration config);
+        Task<TriplePrime.Data.Entities.Configuration> UpdateConfigurationAsync(TriplePrime.Data.Entities.Configuration config);
     }
 } 

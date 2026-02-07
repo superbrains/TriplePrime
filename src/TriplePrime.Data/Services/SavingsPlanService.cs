@@ -21,19 +21,48 @@ namespace TriplePrime.Data.Services
         private readonly PaymentEmailService _paymentEmailService;
         private readonly ILogger<SavingsPlanService> _logger;
         private readonly RoleManager<ApplicationRole> _roleManager;
+        private readonly IGlobalPricingService _globalPricingService;
 
         public SavingsPlanService(
             IUnitOfWork unitOfWork,
             PaymentService paymentService,
             PaymentEmailService paymentEmailService,
             ILogger<SavingsPlanService> logger,
-            RoleManager<ApplicationRole> roleManager)
+            RoleManager<ApplicationRole> roleManager,
+            IGlobalPricingService globalPricingService = null)
         {
             _unitOfWork = unitOfWork;
             _paymentService = paymentService;
             _paymentEmailService = paymentEmailService;
             _logger = logger;
             _roleManager = roleManager;
+            _globalPricingService = globalPricingService;
+        }
+
+        /// <summary>
+        /// Resolves the effective interest rate for a food pack's pricing tier.
+        /// If UseGlobalRate is true, returns the global rate. Otherwise, returns the stored rate.
+        /// </summary>
+        private async Task<decimal> ResolveEffectiveRateAsync(FoodPackPricing pricing, int durationMonths)
+        {
+            if (pricing == null)
+            {
+                // No pricing record - use global rate
+                if (_globalPricingService != null)
+                {
+                    return await _globalPricingService.GetGlobalRateAsync(durationMonths);
+                }
+                return 0m;
+            }
+
+            if (pricing.UseGlobalRate && _globalPricingService != null)
+            {
+                // Use global rate
+                return await _globalPricingService.GetGlobalRateAsync(durationMonths);
+            }
+
+            // Use the stored override rate
+            return pricing.InterestRate;
         }
 
         public async Task<(decimal totalAmount, decimal interestRate)> CalculatePlanAmountAsync(int foodPackId, int durationMonths)
@@ -45,13 +74,11 @@ namespace TriplePrime.Data.Services
             var pricing = await _unitOfWork.Repository<FoodPackPricing>()
                 .GetEntityWithSpec(new FoodPackPricingSpecification(foodPackId, durationMonths));
 
-            if (pricing != null)
-            {
-                return (pricing.GetTotalPrice(foodPack.Price), pricing.InterestRate);
-            }
+            // Resolve the effective interest rate (global or override)
+            var effectiveRate = await ResolveEffectiveRateAsync(pricing, durationMonths);
+            var totalAmount = foodPack.Price * (1 + effectiveRate);
 
-            // No pricing tier found, return base price with 0% interest
-            return (foodPack.Price, 0);
+            return (totalAmount, effectiveRate);
         }
 
         private async Task QueuePaymentConfirmationEmail(SavingsPlan plan, PaymentSchedule paidSchedule, string paymentReference)
@@ -93,25 +120,17 @@ namespace TriplePrime.Data.Services
             await _unitOfWork.BeginTransactionAsync();
             try
             {
-                // Apply interest rate to total amount if applicable
+                // Apply interest rate to total amount using effective rate resolution
                 var foodPack = await _unitOfWork.Repository<FoodPack>().GetByIdAsync(plan.FoodPackId);
                 if (foodPack != null)
                 {
                     var pricing = await _unitOfWork.Repository<FoodPackPricing>()
                         .GetEntityWithSpec(new FoodPackPricingSpecification(plan.FoodPackId, plan.Duration));
 
-                    if (pricing != null)
-                    {
-                        // Apply interest rate to base price
-                        plan.TotalAmount = pricing.GetTotalPrice(foodPack.Price);
-                        plan.MonthlyAmount = Math.Round(plan.TotalAmount / plan.Duration, 2);
-                    }
-                    else
-                    {
-                        // No pricing tier found, use base price without interest
-                        plan.TotalAmount = foodPack.Price;
-                        plan.MonthlyAmount = Math.Round(plan.TotalAmount / plan.Duration, 2);
-                    }
+                    // Resolve the effective interest rate (global or override)
+                    var effectiveRate = await ResolveEffectiveRateAsync(pricing, plan.Duration);
+                    plan.TotalAmount = foodPack.Price * (1 + effectiveRate);
+                    plan.MonthlyAmount = Math.Round(plan.TotalAmount / plan.Duration, 2);
                 }
 
                 // Set initial values
@@ -680,7 +699,7 @@ namespace TriplePrime.Data.Services
                 }
 
                 // Queue payment confirmation email
-                 QueuePaymentConfirmationEmail(plan, schedule, paymentReference);
+                await QueuePaymentConfirmationEmail(plan, schedule, paymentReference);
 
                 _unitOfWork.Repository<SavingsPlan>().Update(plan);
                 await _unitOfWork.SaveChangesAsync();

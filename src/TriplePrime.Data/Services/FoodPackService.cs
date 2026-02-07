@@ -14,14 +14,43 @@ namespace TriplePrime.Data.Services
     public class FoodPackService
     {
         private readonly IUnitOfWork _unitOfWork;
+        private readonly IGlobalPricingService _globalPricingService;
         private readonly string _imageBasePath;
         private readonly string _apiBaseUrl;
 
-        public FoodPackService(IUnitOfWork unitOfWork, string imageBasePath, string apiBaseUrl)
+        public FoodPackService(IUnitOfWork unitOfWork, string imageBasePath, string apiBaseUrl, IGlobalPricingService globalPricingService = null)
         {
             _unitOfWork = unitOfWork;
             _imageBasePath = imageBasePath;
             _apiBaseUrl = apiBaseUrl.TrimEnd('/');
+            _globalPricingService = globalPricingService;
+        }
+
+        /// <summary>
+        /// Resolves the effective interest rate for a food pack's pricing tier.
+        /// If the food pack has an override (UseGlobalRate = false), returns that rate.
+        /// Otherwise, returns the global rate for the duration.
+        /// </summary>
+        public async Task<decimal> ResolveEffectiveRateAsync(int foodPackId, int durationMonths)
+        {
+            // Check for food pack specific pricing
+            var pricing = await _unitOfWork.Repository<FoodPackPricing>()
+                .GetEntityWithSpec(new FoodPackPricingSpecification(foodPackId, durationMonths));
+
+            if (pricing != null && !pricing.UseGlobalRate)
+            {
+                // Food pack has an override - use it
+                return pricing.InterestRate;
+            }
+
+            // Fall back to global rate
+            if (_globalPricingService != null)
+            {
+                return await _globalPricingService.GetGlobalRateAsync(durationMonths);
+            }
+
+            // If no global service, use the pricing rate or default to 0
+            return pricing?.InterestRate ?? 0m;
         }
 
         private string GetFullImageUrl(string relativePath)
@@ -323,6 +352,7 @@ namespace TriplePrime.Data.Services
                         FoodPackId = request.FoodPackId,
                         DurationMonths = tier.DurationMonths,
                         InterestRate = tier.InterestRate,
+                        UseGlobalRate = tier.UseGlobalRate,
                         CreatedAt = DateTime.UtcNow
                     };
 
@@ -349,6 +379,7 @@ namespace TriplePrime.Data.Services
                 throw new ArgumentException($"Pricing with ID {pricingId} not found");
 
             pricing.InterestRate = request.InterestRate;
+            pricing.UseGlobalRate = request.UseGlobalRate;
             pricing.UpdatedAt = DateTime.UtcNow;
 
             _unitOfWork.Repository<FoodPackPricing>().Update(pricing);
@@ -377,18 +408,35 @@ namespace TriplePrime.Data.Services
                 .ListAsync(new FoodPackPricingSpecification(foodPackId));
 
             var basePrice = foodPack.Price;
+            var result = new List<FoodPackPricingDto>();
 
-            return pricings.Select(p => new FoodPackPricingDto
+            foreach (var p in pricings.OrderBy(x => x.DurationMonths))
             {
-                Id = p.Id,
-                FoodPackId = p.FoodPackId,
-                DurationMonths = p.DurationMonths,
-                InterestRate = p.InterestRate,
-                TotalPrice = p.GetTotalPrice(basePrice),
-                DailyPaymentAmount = p.GetDailyPaymentAmount(basePrice),
-                CreatedAt = p.CreatedAt,
-                UpdatedAt = p.UpdatedAt
-            }).OrderBy(p => p.DurationMonths).ToList();
+                // Resolve effective rate: use global rate if UseGlobalRate is true
+                var effectiveRate = p.InterestRate;
+                if (p.UseGlobalRate && _globalPricingService != null)
+                {
+                    effectiveRate = await _globalPricingService.GetGlobalRateAsync(p.DurationMonths);
+                }
+
+                var totalPrice = basePrice * (1 + effectiveRate);
+                var dailyPayment = totalPrice / (p.DurationMonths * 30);
+
+                result.Add(new FoodPackPricingDto
+                {
+                    Id = p.Id,
+                    FoodPackId = p.FoodPackId,
+                    DurationMonths = p.DurationMonths,
+                    InterestRate = effectiveRate, // Return the effective rate, not the stored rate
+                    UseGlobalRate = p.UseGlobalRate,
+                    TotalPrice = totalPrice,
+                    DailyPaymentAmount = dailyPayment,
+                    CreatedAt = p.CreatedAt,
+                    UpdatedAt = p.UpdatedAt
+                });
+            }
+
+            return result;
         }
 
         public async Task<FoodPackPricingDto> GetPricingByDurationAsync(int foodPackId, int durationMonths)
@@ -405,14 +453,25 @@ namespace TriplePrime.Data.Services
 
             var basePrice = foodPack.Price;
 
+            // Resolve effective rate: use global rate if UseGlobalRate is true
+            var effectiveRate = pricing.InterestRate;
+            if (pricing.UseGlobalRate && _globalPricingService != null)
+            {
+                effectiveRate = await _globalPricingService.GetGlobalRateAsync(durationMonths);
+            }
+
+            var totalPrice = basePrice * (1 + effectiveRate);
+            var dailyPayment = totalPrice / (durationMonths * 30);
+
             return new FoodPackPricingDto
             {
                 Id = pricing.Id,
                 FoodPackId = pricing.FoodPackId,
                 DurationMonths = pricing.DurationMonths,
-                InterestRate = pricing.InterestRate,
-                TotalPrice = pricing.GetTotalPrice(basePrice),
-                DailyPaymentAmount = pricing.GetDailyPaymentAmount(basePrice),
+                InterestRate = effectiveRate, // Return the effective rate, not the stored rate
+                UseGlobalRate = pricing.UseGlobalRate,
+                TotalPrice = totalPrice,
+                DailyPaymentAmount = dailyPayment,
                 CreatedAt = pricing.CreatedAt,
                 UpdatedAt = pricing.UpdatedAt
             };

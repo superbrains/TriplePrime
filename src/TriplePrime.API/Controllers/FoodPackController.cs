@@ -1,22 +1,26 @@
 using System;
 using System.Collections.Generic;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TriplePrime.Data.Entities;
+using TriplePrime.Data.Interfaces;
 using TriplePrime.Data.Models;
 using TriplePrime.Data.Services;
 
 namespace TriplePrime.API.Controllers
 {
-  
+
     public class FoodPackController : BaseController
     {
         private readonly FoodPackService _foodPackService;
+        private readonly IGlobalPricingService _globalPricingService;
 
-        public FoodPackController(FoodPackService foodPackService)
+        public FoodPackController(FoodPackService foodPackService, IGlobalPricingService globalPricingService)
         {
             _foodPackService = foodPackService;
+            _globalPricingService = globalPricingService;
         }
 
         [HttpGet]
@@ -262,6 +266,66 @@ namespace TriplePrime.API.Controllers
             {
                 await _foodPackService.DeletePricingAsync(pricingId);
                 return HandleResponse(ApiResponse.SuccessResponse("Pricing deleted successfully"));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        // Global Pricing Endpoints
+        [HttpGet("pricing/global")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetGlobalPricingTiers()
+        {
+            try
+            {
+                var rates = await _globalPricingService.GetAllGlobalRatesAsync();
+                return HandleResponse(ApiResponse<Dictionary<int, decimal>>.SuccessResponse(rates));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpPost("pricing/global")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> SetGlobalPricingTiers([FromBody] GlobalPricingTiersDto request)
+        {
+            try
+            {
+                var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "Admin";
+                await _globalPricingService.SetAllGlobalRatesAsync(request.Rates, userId);
+                return HandleResponse(ApiResponse.SuccessResponse("Global pricing tiers updated successfully"));
+            }
+            catch (System.Exception ex)
+            {
+                return HandleException(ex);
+            }
+        }
+
+        [HttpPatch("{id}/pricing/{durationMonths}/use-global")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> SetUseGlobalRate(int id, int durationMonths, [FromBody] SetUseGlobalRateDto request)
+        {
+            try
+            {
+                var pricing = await _foodPackService.GetPricingByDurationAsync(id, durationMonths);
+                if (pricing == null)
+                {
+                    return HandleResponse(ApiResponse.ErrorResponse($"Pricing for {durationMonths} month(s) not found for food pack {id}"));
+                }
+
+                // Update the pricing to use or not use global rate
+                var updateRequest = new UpdateFoodPackPricingDto
+                {
+                    InterestRate = request.UseGlobal ? 0 : (request.OverrideRate ?? 0),
+                    UseGlobalRate = request.UseGlobal
+                };
+
+                await _foodPackService.UpdatePricingAsync(pricing.Id, updateRequest);
+                return HandleResponse(ApiResponse.SuccessResponse($"Pricing {(request.UseGlobal ? "now uses global rate" : "override set successfully")}"));
             }
             catch (System.Exception ex)
             {

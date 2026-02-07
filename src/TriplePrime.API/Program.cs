@@ -130,12 +130,15 @@ builder.Services.AddScoped<MarketerService>();
 builder.Services.AddScoped<ReportService>();
 builder.Services.AddScoped<LoggingService>();
 builder.Services.AddScoped<ConfigurationService>();
+builder.Services.AddScoped<IConfigurationService, ConfigurationService>();
+builder.Services.AddScoped<IGlobalPricingService, GlobalPricingService>();
 builder.Services.AddScoped<AnalyticsService>();
-builder.Services.AddScoped<FoodPackService>(sp => 
+builder.Services.AddScoped<FoodPackService>(sp =>
     new FoodPackService(
         sp.GetRequiredService<IUnitOfWork>(),
         Path.Combine(builder.Environment.WebRootPath, "images"),
-        builder.Configuration["AppSettings:ApiBaseUrl"]
+        builder.Configuration["AppSettings:ApiBaseUrl"],
+        sp.GetRequiredService<IGlobalPricingService>()
     ));
 builder.Services.AddScoped<DeliveryService>();
 builder.Services.AddScoped<IPaymentMethodService, PaymentMethodService>();

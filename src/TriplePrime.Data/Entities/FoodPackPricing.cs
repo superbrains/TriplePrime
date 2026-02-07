@@ -8,6 +8,13 @@ namespace TriplePrime.Data.Entities
         public int FoodPackId { get; set; }
         public int DurationMonths { get; set; }
         public decimal InterestRate { get; set; } // Stored as decimal (e.g., 0.02 for 2%, 0.04 for 4%)
+
+        /// <summary>
+        /// When true, this food pack uses the global pricing rate for this duration.
+        /// When false, uses the InterestRate stored in this record (override).
+        /// </summary>
+        public bool UseGlobalRate { get; set; } = true;
+
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
 

@@ -28,6 +28,7 @@ namespace TriplePrime.Data
         public DbSet<Commission> Commissions { get; set; }
         public DbSet<NotificationPreferences> NotificationPreferences { get; set; }
         public DbSet<DeliveryPreferences> DeliveryPreferences { get; set; }
+        public DbSet<Entities.Configuration> Configurations { get; set; }
 
         protected override void OnModelCreating(ModelBuilder builder)
         {
