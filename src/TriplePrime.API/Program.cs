@@ -132,6 +132,7 @@ builder.Services.AddScoped<LoggingService>();
 builder.Services.AddScoped<ConfigurationService>();
 builder.Services.AddScoped<IConfigurationService, ConfigurationService>();
 builder.Services.AddScoped<IGlobalPricingService, GlobalPricingService>();
+builder.Services.AddScoped<IPenaltyInterestService, PenaltyInterestService>();
 builder.Services.AddScoped<AnalyticsService>();
 builder.Services.AddScoped<FoodPackService>(sp =>
     new FoodPackService(
@@ -149,6 +150,7 @@ builder.Services.AddHttpClient();
 // Add background services
 builder.Services.AddHostedService<PaymentReminderService>();
 builder.Services.AddHostedService<PaymentAutoDebitService>();
+builder.Services.AddHostedService<InterestAccrualService>();
 
 var app = builder.Build();
 

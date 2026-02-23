@@ -370,11 +370,6 @@ namespace TriplePrime.Data.Services
                 throw new ArgumentException($"Savings plan with ID {planId} not found");
             }
 
-            // Update plan
-            plan.AmountPaid += amount;
-            plan.LastPaymentDate = DateTime.UtcNow;
-            plan.UpdatedAt = DateTime.UtcNow;
-
             // Find the next pending payment schedule
             var schedule = plan.PaymentSchedules
                 .Where(s => s.Status == "Pending")
@@ -383,12 +378,52 @@ namespace TriplePrime.Data.Services
 
             if (schedule != null)
             {
+                // Calculate total amount due (principal + accrued interest)
+                var totalDue = schedule.Amount + schedule.AccruedInterest;
+
+                // Validate payment amount covers both principal and interest
+                if (amount < totalDue)
+                {
+                    throw new ArgumentException(
+                        $"Payment amount (₦{amount:N2}) is insufficient. " +
+                        $"Total due: ₦{totalDue:N2} (Principal: ₦{schedule.Amount:N2}, " +
+                        $"Interest: ₦{schedule.AccruedInterest:N2})");
+                }
+
+                // Log interest collection if applicable
+                if (schedule.AccruedInterest > 0)
+                {
+                    var daysOverdue = schedule.InterestAccrualStartDate.HasValue
+                        ? (DateTime.UtcNow.Date - schedule.InterestAccrualStartDate.Value.Date).Days
+                        : 0;
+
+                    _logger.LogInformation(
+                        "Interest collected: ₦{Interest:F2} for schedule {ScheduleId} (Plan {PlanId}). " +
+                        "Days overdue: {Days}. Payment reference: {Reference}",
+                        schedule.AccruedInterest,
+                        schedule.Id,
+                        planId,
+                        daysOverdue,
+                        paymentReference);
+                }
+
+                // Mark schedule as paid
                 schedule.Status = "Paid";
                 schedule.PaymentReference = paymentReference;
                 schedule.PaidAt = DateTime.UtcNow;
                 schedule.UpdatedAt = DateTime.UtcNow;
                 schedule.UpdatedBy = "System";
+
+                // Clear interest tracking fields (payment received)
+                schedule.AccruedInterest = 0m;
+                schedule.InterestAccrualStartDate = null;
+                schedule.LastInterestCalculationDate = null;
             }
+
+            // Update plan
+            plan.AmountPaid += amount;
+            plan.LastPaymentDate = DateTime.UtcNow;
+            plan.UpdatedAt = DateTime.UtcNow;
 
             // Check if plan is completed
             if (plan.AmountPaid >= plan.TotalAmount)
@@ -614,7 +649,7 @@ namespace TriplePrime.Data.Services
 
             var dueSchedules = await _unitOfWork.Repository<PaymentSchedule>().ListAsync(spec);
 
-            // Group by user and calculate total amount owed
+            // Group by user and calculate total amount owed (including interest)
             var defaulters = dueSchedules
                 .Where(s => s.SavingsPlan != null && s.SavingsPlan.User != null)
                 .GroupBy(s => s.SavingsPlan.UserId)
@@ -624,10 +659,12 @@ namespace TriplePrime.Data.Services
                     FullName = $"{g.First().SavingsPlan.User.FirstName} {g.First().SavingsPlan.User.LastName}",
                     PhoneNumber = g.First().SavingsPlan.User.PhoneNumber,
                     TotalAmountOwed = g.Sum(s => s.Amount),
+                    TotalInterestAccrued = g.Sum(s => s.AccruedInterest),
+                    GrandTotalDue = g.Sum(s => s.Amount + s.AccruedInterest),
                     DuePayments = g.Count(),
                     LastPaymentDate = g.First().SavingsPlan.LastPaymentDate
                 })
-                .OrderByDescending(d => d.TotalAmountOwed)
+                .OrderByDescending(d => d.GrandTotalDue) // Sort by total including interest
                 .Skip((pageNumber - 1) * pageSize)
                 .Take(pageSize)
                 .ToList();
@@ -674,9 +711,34 @@ namespace TriplePrime.Data.Services
                     throw new InvalidOperationException("This schedule has already been paid");
                 }
 
-                if (amount != schedule.Amount)
+                // Calculate total amount due (principal + accrued interest)
+                var totalDue = schedule.Amount + schedule.AccruedInterest;
+
+                // Validate payment amount covers both principal and interest
+                if (amount < totalDue)
                 {
-                    throw new ArgumentException("Payment amount does not match schedule amount");
+                    throw new ArgumentException(
+                        $"Payment amount (₦{amount:N2}) is insufficient. " +
+                        $"Total due: ₦{totalDue:N2} (Principal: ₦{schedule.Amount:N2}, " +
+                        $"Interest: ₦{schedule.AccruedInterest:N2})");
+                }
+
+                // Log interest collection if applicable
+                if (schedule.AccruedInterest > 0)
+                {
+                    var daysOverdue = schedule.InterestAccrualStartDate.HasValue
+                        ? (DateTime.UtcNow.Date - schedule.InterestAccrualStartDate.Value.Date).Days
+                        : 0;
+
+                    _logger.LogInformation(
+                        "Mobile payment - Interest collected: ₦{Interest:F2} for schedule {ScheduleId} (Plan {PlanId}). " +
+                        "Days overdue: {Days}. User: {UserId}. Payment reference: {Reference}",
+                        schedule.AccruedInterest,
+                        schedule.Id,
+                        planId,
+                        daysOverdue,
+                        userId,
+                        paymentReference);
                 }
 
                 // Update the payment schedule
@@ -685,6 +747,11 @@ namespace TriplePrime.Data.Services
                 schedule.PaidAt = DateTime.UtcNow;
                 schedule.UpdatedAt = DateTime.UtcNow;
                 schedule.UpdatedBy = userId;
+
+                // Clear interest tracking fields (payment received)
+                schedule.AccruedInterest = 0m;
+                schedule.InterestAccrualStartDate = null;
+                schedule.LastInterestCalculationDate = null;
 
                 // Update plan payment details
                 plan.AmountPaid += amount;
@@ -790,12 +857,34 @@ namespace TriplePrime.Data.Services
                     throw new ArgumentException($"Savings plan with ID {schedule.SavingsPlanId} not found");
                 }
 
+                // Log interest collection if applicable
+                if (schedule.AccruedInterest > 0)
+                {
+                    var daysOverdue = schedule.InterestAccrualStartDate.HasValue
+                        ? (DateTime.UtcNow.Date - schedule.InterestAccrualStartDate.Value.Date).Days
+                        : 0;
+
+                    _logger.LogInformation(
+                        "Webhook payment - Interest collected: ₦{Interest:F2} for schedule {ScheduleId} (Plan {PlanId}). " +
+                        "Days overdue: {Days}. Payment reference: {Reference}",
+                        schedule.AccruedInterest,
+                        schedule.Id,
+                        schedule.SavingsPlanId,
+                        daysOverdue,
+                        webhookEvent.Data.Reference);
+                }
+
                 // Update the payment schedule
                 schedule.Status = "Paid";
                 schedule.PaymentReference = webhookEvent.Data.Reference;
                 schedule.PaidAt = DateTime.UtcNow;
                 schedule.UpdatedAt = DateTime.UtcNow;
                 schedule.UpdatedBy = "System";
+
+                // Clear interest tracking fields (payment received)
+                schedule.AccruedInterest = 0m;
+                schedule.InterestAccrualStartDate = null;
+                schedule.LastInterestCalculationDate = null;
 
                 // Update plan payment details
                 plan.AmountPaid += webhookEvent.Data.Amount / 100m; // Convert from kobo to naira
@@ -908,6 +997,8 @@ namespace TriplePrime.Data.Services
         public string FullName { get; set; }
         public string PhoneNumber { get; set; }
         public decimal TotalAmountOwed { get; set; }
+        public decimal TotalInterestAccrued { get; set; }
+        public decimal GrandTotalDue { get; set; }
         public int DuePayments { get; set; }
         public DateTime? LastPaymentDate { get; set; }
     }

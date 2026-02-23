@@ -334,12 +334,17 @@ namespace TriplePrime.API.Controllers
                 Email = user.Email,
                 Address = user.Address,
                 TotalAmountOwed = dueSchedules.Sum(s => s.Amount),
+                TotalInterestAccrued = dueSchedules.Sum(s => s.AccruedInterest),
+                GrandTotalDue = dueSchedules.Sum(s => s.Amount + s.AccruedInterest),
                 DuePayments = dueSchedules.Select(s => new DuePaymentInfo
                 {
                     ScheduleId = s.Id,
                     DueDate = s.DueDate,
                     Amount = s.Amount,
-                    DaysOverdue = (DateTime.UtcNow - s.DueDate).Days
+                    AccruedInterest = s.AccruedInterest,
+                    TotalDue = s.Amount + s.AccruedInterest,
+                    DaysOverdue = (DateTime.UtcNow - s.DueDate).Days,
+                    InterestAccrualStartDate = s.InterestAccrualStartDate
                 }).OrderByDescending(p => p.DaysOverdue).ToList()
             };
 
@@ -572,6 +577,8 @@ namespace TriplePrime.API.Controllers
         public string Email { get; set; }
         public string Address { get; set; }
         public decimal TotalAmountOwed { get; set; }
+        public decimal TotalInterestAccrued { get; set; }
+        public decimal GrandTotalDue { get; set; }
         public List<DuePaymentInfo> DuePayments { get; set; }
     }
 
@@ -580,7 +587,10 @@ namespace TriplePrime.API.Controllers
         public int ScheduleId { get; set; }
         public DateTime DueDate { get; set; }
         public decimal Amount { get; set; }
+        public decimal AccruedInterest { get; set; }
+        public decimal TotalDue { get; set; }
         public int DaysOverdue { get; set; }
+        public DateTime? InterestAccrualStartDate { get; set; }
     }
 
     public class RevertPaymentRequest
