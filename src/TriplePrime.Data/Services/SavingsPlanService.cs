@@ -435,6 +435,53 @@ namespace TriplePrime.Data.Services
             await _unitOfWork.SaveChangesAsync();
         }
 
+        public async Task ProcessAdminManualPaymentAsync(int planId, int scheduleId, decimal amount, string paymentReference)
+        {
+            var plan = await GetSavingsPlanByIdAsync(planId);
+            if (plan == null)
+                throw new ArgumentException($"Savings plan with ID {planId} not found");
+
+            // Target the specific schedule by ID — not just the next pending one
+            var schedule = plan.PaymentSchedules.FirstOrDefault(s => s.Id == scheduleId);
+            if (schedule == null)
+                throw new ArgumentException($"Payment schedule with ID {scheduleId} not found");
+
+            if (schedule.Status == "Paid")
+                throw new ArgumentException("This payment schedule has already been paid");
+
+            // Waive any accrued interest — admin is recording a payment already made outside the platform
+            if (schedule.AccruedInterest > 0)
+            {
+                _logger.LogInformation(
+                    "Admin manual payment: Waiving ₦{Interest:F2} accrued interest for schedule {ScheduleId} " +
+                    "(Plan {PlanId}). Payment reference: {Reference}",
+                    schedule.AccruedInterest, scheduleId, planId, paymentReference);
+            }
+
+            // Mark paid — no interest amount validation for admin manual payments
+            schedule.Status = "Paid";
+            schedule.PaymentReference = paymentReference;
+            schedule.PaidAt = DateTime.UtcNow;
+            schedule.UpdatedAt = DateTime.UtcNow;
+            schedule.UpdatedBy = "Admin";
+
+            // Clear interest tracking (interest waived for admin manual payment)
+            schedule.AccruedInterest = 0m;
+            schedule.InterestAccrualStartDate = null;
+            schedule.LastInterestCalculationDate = null;
+
+            // Update plan totals with the principal amount paid
+            plan.AmountPaid += amount;
+            plan.LastPaymentDate = DateTime.UtcNow;
+            plan.UpdatedAt = DateTime.UtcNow;
+
+            if (plan.AmountPaid >= plan.TotalAmount)
+                plan.Status = "Completed";
+
+            _unitOfWork.Repository<SavingsPlan>().Update(plan);
+            await _unitOfWork.SaveChangesAsync();
+        }
+
         public async Task<SavingsPlan> GetSavingsPlanBySubscriptionCodeAsync(string subscriptionCode)
         {
             var spec = new SavingsPlanSpecification();

@@ -152,5 +152,34 @@ namespace TriplePrime.API.Controllers
                 return HandleException(ex);
             }
         }
+
+        /// <summary>
+        /// Manually triggers interest calculation for all overdue schedules (Admin only)
+        /// </summary>
+        [HttpPost("penalty-interest/recalculate")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> RecalculateInterest()
+        {
+            try
+            {
+                var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "Admin";
+                _logger.LogInformation("Manual interest recalculation triggered by user {UserId}", userId);
+
+                var result = await _penaltyInterestService.RunCalculationAsync();
+
+                return HandleResponse(ApiResponse<object>.SuccessResponse(new
+                {
+                    result.SchedulesProcessed,
+                    result.SchedulesUpdated,
+                    TotalInterestAccrued = result.TotalInterestAccrued,
+                    result.Message
+                }));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during manual interest recalculation");
+                return HandleException(ex);
+            }
+        }
     }
 }

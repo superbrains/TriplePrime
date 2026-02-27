@@ -1,15 +1,18 @@
 using System;
 using System.Globalization;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TriplePrime.Data.Entities;
 using TriplePrime.Data.Interfaces;
+using TriplePrime.Data.Specifications;
 
 namespace TriplePrime.Data.Services
 {
     public class PenaltyInterestService : IPenaltyInterestService
     {
         private readonly IConfigurationService _configService;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly ILogger<PenaltyInterestService> _logger;
 
         private const string DailyRateKey = "PenaltyInterest:DailyRate";
@@ -19,9 +22,11 @@ namespace TriplePrime.Data.Services
 
         public PenaltyInterestService(
             IConfigurationService configService,
+            IUnitOfWork unitOfWork,
             ILogger<PenaltyInterestService> logger)
         {
             _configService = configService;
+            _unitOfWork = unitOfWork;
             _logger = logger;
         }
 
@@ -139,6 +144,69 @@ namespace TriplePrime.Data.Services
             _logger.LogInformation(
                 "Penalty interest accrual {Status} by {User}",
                 enabled ? "enabled" : "disabled", userId);
+        }
+
+        public async Task<InterestCalculationResult> RunCalculationAsync()
+        {
+            var result = new InterestCalculationResult();
+
+            var isEnabled = await IsPenaltyInterestEnabledAsync();
+            if (!isEnabled)
+            {
+                result.Message = "Penalty interest accrual is currently disabled.";
+                return result;
+            }
+
+            var dailyRate = await GetDailyInterestRateAsync();
+            var today = DateTime.UtcNow.Date;
+
+            var spec = new PaymentScheduleSpecification();
+            spec.ApplyStatusFilter("Pending");
+            spec.ApplyDueDateFilter(today);
+
+            var overdueSchedules = await _unitOfWork.Repository<PaymentSchedule>().ListAsync(spec);
+            result.SchedulesProcessed = overdueSchedules.Count();
+
+            if (!overdueSchedules.Any())
+            {
+                result.Message = "No overdue payment schedules found.";
+                return result;
+            }
+
+            foreach (var schedule in overdueSchedules)
+            {
+                if (!schedule.InterestAccrualStartDate.HasValue)
+                {
+                    schedule.InterestAccrualStartDate = schedule.DueDate.Date.AddDays(1);
+                    schedule.LastInterestCalculationDate = schedule.InterestAccrualStartDate;
+                    schedule.UpdatedAt = DateTime.UtcNow;
+                    schedule.UpdatedBy = "ManualRecalculation";
+                }
+
+                var daysSinceLastCalculation = (today - schedule.LastInterestCalculationDate.Value.Date).Days;
+
+                if (daysSinceLastCalculation > 0)
+                {
+                    var newInterest = schedule.Amount * dailyRate * daysSinceLastCalculation;
+                    schedule.AccruedInterest += newInterest;
+                    schedule.LastInterestCalculationDate = today;
+                    schedule.UpdatedAt = DateTime.UtcNow;
+                    schedule.UpdatedBy = "ManualRecalculation";
+
+                    result.TotalInterestAccrued += newInterest;
+                    result.SchedulesUpdated++;
+                }
+            }
+
+            if (result.SchedulesUpdated > 0)
+                await _unitOfWork.SaveChangesAsync();
+
+            result.Message = result.SchedulesUpdated > 0
+                ? $"Updated {result.SchedulesUpdated} schedules. Total interest accrued: ₦{result.TotalInterestAccrued:N2}"
+                : "All schedules are already up to date.";
+
+            _logger.LogInformation("Manual interest recalculation: {Message}", result.Message);
+            return result;
         }
 
         private static void ValidateRate(decimal rate)

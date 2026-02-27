@@ -430,10 +430,19 @@ namespace TriplePrime.API.Controllers
                 if (schedule.Status == "Paid")
                     return BadRequest("This payment has already been made");
 
-                // Process the payment
-                await _savingsPlanService.ProcessPaymentAsync(planId, request.Amount, $"MANUAL-{DateTime.UtcNow.Ticks}");
+                // Process admin manual payment — waives accrued interest for past-due schedules
+                // and targets the exact schedule selected by the admin
+                await _savingsPlanService.ProcessAdminManualPaymentAsync(
+                    planId,
+                    request.ScheduleId,
+                    request.Amount,
+                    $"MANUAL-{DateTime.UtcNow.Ticks}");
 
                 return Ok(new { message = "Payment updated successfully" });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
             }
             catch (Exception ex)
             {
