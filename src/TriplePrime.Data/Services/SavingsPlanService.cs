@@ -482,6 +482,67 @@ namespace TriplePrime.Data.Services
             await _unitOfWork.SaveChangesAsync();
         }
 
+        public async Task<PagedResult<RecentPaymentDto>> GetRecentPaymentsAsync(int page, int pageSize)
+        {
+            // Count without paging
+            var countSpec = new PaymentScheduleSpecification();
+            countSpec.ApplyStatusFilter("Paid");
+            var totalCount = await _unitOfWork.Repository<PaymentSchedule>().CountAsync(countSpec);
+
+            // Fetch the requested page
+            var spec = new PaymentScheduleSpecification();
+            spec.ApplyStatusFilter("Paid");
+            spec.ApplyOrderByPaidAtDescending();
+            spec.ApplyPaging((page - 1) * pageSize, pageSize);
+            var schedules = await _unitOfWork.Repository<PaymentSchedule>().ListAsync(spec);
+
+            var items = schedules.Select(ps => new RecentPaymentDto
+            {
+                PlanId = ps.SavingsPlanId,
+                ScheduleId = ps.Id,
+                UserFullName = $"{ps.SavingsPlan.User.FirstName} {ps.SavingsPlan.User.LastName}",
+                FoodPackName = ps.SavingsPlan.FoodPack.Name,
+                Amount = ps.Amount,
+                PaidAt = ps.PaidAt
+            }).ToList();
+
+            return new PagedResult<RecentPaymentDto>
+            {
+                Data = items,
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize
+            };
+        }
+
+        public async Task<IEnumerable<PlanDropdownDto>> SearchPlansForDropdownAsync(string search, int pageSize)
+        {
+            var spec = new SavingsPlanSpecification();
+            if (!string.IsNullOrWhiteSpace(search))
+                spec.ApplySearchFilter(search.Trim());
+            spec.ApplyPagingFilter(1, pageSize);
+
+            var plans = await _unitOfWork.Repository<SavingsPlan>().ListAsync(spec);
+
+            return plans.Select(p => new PlanDropdownDto
+            {
+                Id = p.Id,
+                UserFullName = $"{p.User.FirstName} {p.User.LastName}",
+                FoodPackName = p.FoodPack.Name,
+                PendingSchedules = p.PaymentSchedules
+                    .Where(s => s.Status == "Pending")
+                    .OrderBy(s => s.DueDate)
+                    .Select(s => new PaymentScheduleDto
+                    {
+                        Id = s.Id,
+                        DueDate = s.DueDate,
+                        Amount = s.Amount,
+                        Status = s.Status,
+                        PaidAt = s.PaidAt
+                    }).ToList()
+            });
+        }
+
         public async Task<SavingsPlan> GetSavingsPlanBySubscriptionCodeAsync(string subscriptionCode)
         {
             var spec = new SavingsPlanSpecification();
@@ -516,23 +577,33 @@ namespace TriplePrime.Data.Services
             return await _unitOfWork.Repository<PaymentSchedule>().ListAsync(spec);
         }
 
-        public async Task<IEnumerable<SavingsPlanWithUserDetails>> GetAllSavingsPlansForAdminAsync(DateTime? startDate, DateTime? endDate, string status)
+        public async Task<PagedResult<SavingsPlanWithUserDetails>> GetAllSavingsPlansForAdminAsync(
+            DateTime? startDate, DateTime? endDate, string status,
+            int page = 1, int pageSize = 20, string search = null)
         {
-            var spec = new SavingsPlanSpecification();
-
+            // Build criteria for count (without paging)
+            var countSpec = new SavingsPlanSpecification();
             if (startDate.HasValue && endDate.HasValue)
-            {
-                spec.ApplyDateRangeFilter(startDate.Value, endDate.Value);
-            }
-
+                countSpec.ApplyDateRangeFilter(startDate.Value, endDate.Value);
             if (!string.IsNullOrEmpty(status))
-            {
+                countSpec.ApplyStatusFilter(status);
+            if (!string.IsNullOrWhiteSpace(search))
+                countSpec.ApplySearchFilter(search.Trim());
+
+            var totalCount = await _unitOfWork.Repository<SavingsPlan>().CountAsync(countSpec);
+
+            // Build data spec (same criteria + paging)
+            var spec = new SavingsPlanSpecification();
+            if (startDate.HasValue && endDate.HasValue)
+                spec.ApplyDateRangeFilter(startDate.Value, endDate.Value);
+            if (!string.IsNullOrEmpty(status))
                 spec.ApplyStatusFilter(status);
-            }
+            if (!string.IsNullOrWhiteSpace(search))
+                spec.ApplySearchFilter(search.Trim());
+            spec.ApplyPagingFilter(page, pageSize);
 
             var plans = await _unitOfWork.Repository<SavingsPlan>().ListAsync(spec);
 
-            // Include user and food pack details
             var plansWithDetails = plans.Select(plan => new SavingsPlanWithUserDetails
             {
                 Id = plan.Id,
@@ -558,9 +629,15 @@ namespace TriplePrime.Data.Services
                         Status = s.Status,
                         PaidAt = s.PaidAt
                     }).ToList()
-            });
+            }).ToList();
 
-            return plansWithDetails;
+            return new PagedResult<SavingsPlanWithUserDetails>
+            {
+                Data = plansWithDetails,
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize
+            };
         }
 
         public async Task<SavingsPlanWithUserDetails> GetSavingsPlanScheduleAsync(int id)

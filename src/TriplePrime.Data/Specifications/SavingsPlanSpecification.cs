@@ -63,5 +63,19 @@ namespace TriplePrime.Data.Specifications
             AddCriteria(p => p.PaymentSchedules.Any(ps => ps.PaymentReference == reference));
             AddInclude(x => x.PaymentSchedules);
         }
+
+        public void ApplySearchFilter(string search)
+        {
+            AddCriteria(p =>
+                p.User.FirstName.Contains(search) ||
+                p.User.LastName.Contains(search) ||
+                p.User.Email.Contains(search) ||
+                p.User.PhoneNumber.Contains(search));
+        }
+
+        public void ApplyPagingFilter(int page, int pageSize)
+        {
+            ApplyPaging((page - 1) * pageSize, pageSize);
+        }
     }
 } 

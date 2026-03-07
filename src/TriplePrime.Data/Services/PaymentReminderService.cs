@@ -55,10 +55,10 @@ namespace TriplePrime.Data.Services
             var pushNotificationService = scope.ServiceProvider.GetRequiredService<IPushNotificationService>();
             var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
-            // Get all active savings plans
-            var activePlans = await savingsPlanService.GetAllSavingsPlansForAdminAsync(null, null, "Active");
+            // Get all active savings plans (large page size to process all in one pass)
+            var activePlansResult = await savingsPlanService.GetAllSavingsPlansForAdminAsync(null, null, "Active", page: 1, pageSize: 10000);
 
-            foreach (var plan in activePlans)
+            foreach (var plan in activePlansResult.Data)
             {
                 try
                 {

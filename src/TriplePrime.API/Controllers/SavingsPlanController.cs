@@ -277,10 +277,33 @@ namespace TriplePrime.API.Controllers
 
         [HttpGet("admin/all")]
         [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> GetAllSavingsPlans([FromQuery] DateTime? startDate, [FromQuery] DateTime? endDate, [FromQuery] string status)
+        public async Task<IActionResult> GetAllSavingsPlans(
+            [FromQuery] DateTime? startDate,
+            [FromQuery] DateTime? endDate,
+            [FromQuery] string status,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20,
+            [FromQuery] string search = "")
         {
-            var plans = await _savingsPlanService.GetAllSavingsPlansForAdminAsync(startDate, endDate, status);
-            return Ok(plans);
+            var result = await _savingsPlanService.GetAllSavingsPlansForAdminAsync(
+                startDate, endDate, status, page, pageSize, search);
+            return Ok(result);
+        }
+
+        [HttpGet("admin/recent-payments")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> GetRecentPayments([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
+        {
+            var result = await _savingsPlanService.GetRecentPaymentsAsync(page, pageSize);
+            return Ok(result);
+        }
+
+        [HttpGet("admin/plans/dropdown")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> GetPlansForDropdown([FromQuery] string q = "", [FromQuery] int pageSize = 20)
+        {
+            var result = await _savingsPlanService.SearchPlansForDropdownAsync(q, pageSize);
+            return Ok(result);
         }
 
         [HttpGet("admin/{id}/schedule")]

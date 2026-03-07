@@ -27,6 +27,7 @@ namespace TriplePrime.Data.Specifications
             _includeStrings = new List<string>();
             _includeStrings.Add("SavingsPlan");
             _includeStrings.Add("SavingsPlan.User");
+            _includeStrings.Add("SavingsPlan.FoodPack");
         }
 
         public Expression<Func<PaymentSchedule, bool>> Criteria => _criteria;
@@ -83,6 +84,11 @@ namespace TriplePrime.Data.Specifications
         {
             var planFilter = (Expression<Func<PaymentSchedule, bool>>)(ps => ps.SavingsPlanId == planId);
             _criteria = _criteria == null ? planFilter : CombineCriteria(_criteria, planFilter);
+        }
+
+        public void ApplyOrderByPaidAtDescending()
+        {
+            _orderByDescending = ps => (object)(ps.PaidAt ?? DateTime.MinValue);
         }
 
         public void ApplyPaging(int skip, int take)
